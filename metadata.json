@@ -1,0 +1,8 @@
+{
+  "name": "VZone Marketing Dashboard",
+  "description": "Monthly report dashboard showing deliverables and works completed from Google Sheets or Excel workbooks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "Task": {
+      "title": "Task",
+      "description": "A task item for work tracking and deliverables",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 300 },
+        "description": { "type": "string", "maxLength": 3000 },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High"] },
+        "status": { "type": "string", "enum": ["pending", "in-progress", "in-review", "completed"] },
+        "category": { "type": "string", "maxLength": 150 },
+        "assignedTo": { "type": "string", "maxLength": 150 },
+        "dueDate": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "completedAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "title", "status", "category"]
+    },
+    "Config": {
+      "title": "Config",
+      "description": "Shared configuration document",
+      "type": "object",
+      "properties": {
+        "sheetUrl": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      }
+    }
+  },
+  "firestore": {
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Tasks collection shared across devices in real time"
+    },
+    "/config/{configId}": {
+      "schema": "Config",
+      "description": "Shared configuration settings"
+    }
+  }
+}
