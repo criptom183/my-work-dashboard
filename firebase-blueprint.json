@@ -21,10 +21,11 @@
     },
     "Config": {
       "title": "Config",
-      "description": "Shared configuration document",
+      "description": "Shared configuration and active dashboard document",
       "type": "object",
       "properties": {
         "sheetUrl": { "type": "string", "maxLength": 500 },
+        "dashboardData": { "type": "object" },
         "updatedAt": { "type": "string", "maxLength": 50 }
       }
     }

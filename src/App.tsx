@@ -37,6 +37,8 @@ import {
   subscribeToFirestoreTasks,
   subscribeToSharedSheetUrl,
   saveSharedSheetUrl,
+  saveSharedDashboardData,
+  subscribeToSharedDashboardData,
 } from './utils/firestoreTasks';
 import {
   RefreshCw,
@@ -101,27 +103,6 @@ export default function App() {
     saveTasksToStorage(updated);
   };
 
-  // Real-time synchronization from Cloud Firestore across all devices (no login needed to view)
-  useEffect(() => {
-    const unsubTasks = subscribeToFirestoreTasks((cloudTasks) => {
-      if (cloudTasks && cloudTasks.length > 0) {
-        setTasks(cloudTasks);
-        saveTasksToStorage(cloudTasks);
-      }
-    });
-
-    const unsubSheetUrl = subscribeToSharedSheetUrl((sharedUrl) => {
-      if (sharedUrl && sharedUrl !== dataRef.current.sheetSourceUrl) {
-        setData((prev) => ({ ...prev, sheetSourceUrl: sharedUrl }));
-      }
-    });
-
-    return () => {
-      unsubTasks();
-      unsubSheetUrl();
-    };
-  }, []);
-
   const [toastMessage, setToastMessage] = useState<{
     text: string;
     type: 'success' | 'info' | 'error';
@@ -132,15 +113,6 @@ export default function App() {
 
   const syncSettingsRef = useRef(syncSettings);
   syncSettingsRef.current = syncSettings;
-
-  // Sync selectedMonth when new data arrives
-  useEffect(() => {
-    if (data.selectedMonth) {
-      setSelectedMonth(data.selectedMonth);
-    } else if (data.availableMonths && data.availableMonths.length > 0) {
-      setSelectedMonth(data.availableMonths[data.availableMonths.length - 1]);
-    }
-  }, [data.selectedMonth, data.availableMonths]);
 
   // Show temporary toast message
   const showToast = useCallback((text: string, type: 'success' | 'info' | 'error' = 'success') => {
@@ -157,8 +129,8 @@ export default function App() {
 
   // Core Google Sheet sync function
   const handleSyncGoogleSheet = useCallback(
-    async (isSilent = false) => {
-      const currentUrl = dataRef.current.sheetSourceUrl;
+    async (isSilent = false, overrideUrl?: string) => {
+      const currentUrl = overrideUrl || dataRef.current.sheetSourceUrl;
       if (!currentUrl) return;
 
       if (!isSilent) {
@@ -169,6 +141,12 @@ export default function App() {
       try {
         const freshData = await fetchAndParseGoogleSheet(currentUrl);
         setData(freshData);
+
+        // Broadcast to Cloud Firestore so any user, device, or incognito tab sees the updated data in real time!
+        saveSharedDashboardData(freshData).catch(console.warn);
+        if (currentUrl) {
+          saveSharedSheetUrl(currentUrl).catch(console.warn);
+        }
 
         if (freshData.tasks && freshData.tasks.length > 0) {
           handleUpdateTasks(freshData.tasks);
@@ -224,16 +202,72 @@ export default function App() {
     [handleUpdateSyncSettings, showToast]
   );
 
-  // Load from local storage on startup if available
+  // Real-time synchronization from Cloud Firestore across all devices and incognito tabs
+  useEffect(() => {
+    // 1. Subscribe to tasks
+    const unsubTasks = subscribeToFirestoreTasks((cloudTasks) => {
+      if (cloudTasks && cloudTasks.length > 0) {
+        setTasks(cloudTasks);
+        saveTasksToStorage(cloudTasks);
+      }
+    });
+
+    // 2. Subscribe to shared sheet URL
+    const unsubSheetUrl = subscribeToSharedSheetUrl((sharedUrl) => {
+      if (sharedUrl && sharedUrl !== dataRef.current.sheetSourceUrl) {
+        setData((prev) => ({ ...prev, sheetSourceUrl: sharedUrl }));
+        if (syncSettingsRef.current.autoSync) {
+          handleSyncGoogleSheet(true, sharedUrl);
+        }
+      }
+    });
+
+    // 3. Subscribe to active dashboard state (works completed, selected month, available months)
+    const unsubDashboard = subscribeToSharedDashboardData((cloudDashboard) => {
+      if (cloudDashboard && Array.isArray(cloudDashboard.worksCompleted) && cloudDashboard.worksCompleted.length > 0) {
+        setData(cloudDashboard);
+        saveDashboardToStorage(cloudDashboard);
+        setIsSavedInStorage(true);
+        if (cloudDashboard.selectedMonth) {
+          setSelectedMonth(cloudDashboard.selectedMonth);
+        } else if (cloudDashboard.availableMonths && cloudDashboard.availableMonths.length > 0) {
+          setSelectedMonth(cloudDashboard.availableMonths[cloudDashboard.availableMonths.length - 1]);
+        }
+      }
+    });
+
+    return () => {
+      unsubTasks();
+      unsubSheetUrl();
+      unsubDashboard();
+    };
+  }, [handleSyncGoogleSheet]);
+
+  // Sync selectedMonth when new data arrives
+  useEffect(() => {
+    if (data.selectedMonth) {
+      setSelectedMonth(data.selectedMonth);
+    } else if (data.availableMonths && data.availableMonths.length > 0) {
+      setSelectedMonth(data.availableMonths[data.availableMonths.length - 1]);
+    }
+  }, [data.selectedMonth, data.availableMonths]);
+
+  // Load from local storage on startup and broadcast to Firestore so any recipient/incognito tab gets the latest data
   useEffect(() => {
     const loaded = loadDashboardFromStorage();
     if (loaded && loaded.data) {
-      // If loaded cache has older version (< 18 deliverables or missing template items), upgrade to the new 18-item template
+      // If loaded cache has older version (< 15 deliverables), upgrade to the new template
       if (!loaded.data.worksCompleted || loaded.data.worksCompleted.length < 15) {
         setData(initialDashboardData);
         saveDashboardToStorage(initialDashboardData);
+        saveSharedDashboardData(initialDashboardData).catch(console.warn);
       } else {
         setData(loaded.data);
+        // Sync the user's loaded data to Cloud Firestore immediately
+        saveSharedDashboardData(loaded.data).catch(console.warn);
+        if (loaded.data.sheetSourceUrl) {
+          saveSharedSheetUrl(loaded.data.sheetSourceUrl).catch(console.warn);
+        }
       }
       setIsSavedInStorage(true);
       setSavedMeta(loaded.meta);
@@ -251,6 +285,10 @@ export default function App() {
 
   const handleSaveToLocalMemory = () => {
     saveDashboardToStorage(data);
+    saveSharedDashboardData(data).catch(console.warn);
+    if (data.sheetSourceUrl) {
+      saveSharedSheetUrl(data.sheetSourceUrl).catch(console.warn);
+    }
     setIsSavedInStorage(true);
     const meta = {
       savedAt: new Date().toLocaleString(undefined, {
@@ -261,7 +299,7 @@ export default function App() {
       totalWorks: data.worksCompleted.length,
     };
     setSavedMeta(meta);
-    showToast('Dashboard data saved to browser local memory!');
+    showToast('Dashboard data saved & synced to Cloud Firestore!');
   };
 
   const handleClearStorage = () => {
@@ -272,9 +310,8 @@ export default function App() {
   };
 
   const handleUpdateWorkItem = (id: string, updates: Partial<WorkItem>) => {
-    setData((prev) => ({
-      ...prev,
-      worksCompleted: prev.worksCompleted.map((w) => {
+    setData((prev) => {
+      const updatedWorks = prev.worksCompleted.map((w) => {
         if (w.id === id || w.id.replace(/^all-/, '') === id.replace(/^all-/, '')) {
           const updatedBreakdown = w.monthlyBreakdown
             ? {
@@ -292,8 +329,11 @@ export default function App() {
           };
         }
         return w;
-      }),
-    }));
+      });
+      const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
     setIsSavedInStorage(false);
   };
 
@@ -317,21 +357,29 @@ export default function App() {
       },
     };
 
-    setData((prev) => ({
-      ...prev,
-      worksCompleted: [newWork, ...prev.worksCompleted],
-    }));
+    setData((prev) => {
+      const updatedDashboard = {
+        ...prev,
+        worksCompleted: [newWork, ...prev.worksCompleted],
+      };
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
     setIsSavedInStorage(false);
     showToast(`Added deliverable "${activity}"!`);
   };
 
   const handleDeleteWorkItem = (id: string) => {
-    setData((prev) => ({
-      ...prev,
-      worksCompleted: prev.worksCompleted.filter(
-        (w) => w.id !== id && w.id.replace(/^all-/, '') !== id.replace(/^all-/, '')
-      ),
-    }));
+    setData((prev) => {
+      const updatedDashboard = {
+        ...prev,
+        worksCompleted: prev.worksCompleted.filter(
+          (w) => w.id !== id && w.id.replace(/^all-/, '') !== id.replace(/^all-/, '')
+        ),
+      };
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
     setIsSavedInStorage(false);
   };
 
@@ -358,6 +406,7 @@ export default function App() {
 
   const handleResetData = () => {
     setData(initialDashboardData);
+    saveSharedDashboardData(initialDashboardData).catch(console.warn);
     setSelectedMonth(initialDashboardData.selectedMonth || 'Oct 2026');
     setIsSavedInStorage(false);
     showToast('Reloaded sample report data.', 'info');
@@ -365,6 +414,12 @@ export default function App() {
 
   const handleDataLoaded = (newData: DashboardData, saveToLocalMemory: boolean = true) => {
     setData(newData);
+    // Broadcast to Cloud Firestore so all recipients & incognito tabs get the new data in real time!
+    saveSharedDashboardData(newData).catch(console.warn);
+    if (newData.sheetSourceUrl) {
+      saveSharedSheetUrl(newData.sheetSourceUrl).catch(console.warn);
+    }
+
     if (newData.tasks && newData.tasks.length > 0) {
       handleUpdateTasks(newData.tasks);
     }
@@ -386,10 +441,10 @@ export default function App() {
         totalWorks: newData.worksCompleted.length,
       };
       setSavedMeta(meta);
-      showToast(`Imported ${newData.fileName} and saved to local memory!`);
+      showToast(`Imported ${newData.fileName} & synced to Cloud Firestore!`);
     } else {
       setIsSavedInStorage(false);
-      showToast(`Imported ${newData.fileName}. Click "Save to Memory" to keep it.`);
+      showToast(`Imported ${newData.fileName} and broadcast to live dashboard.`);
     }
   };
 

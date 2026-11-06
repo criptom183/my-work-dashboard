@@ -11,7 +11,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { TaskItem } from '../types';
+import { TaskItem, DashboardData } from '../types';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
@@ -134,3 +134,69 @@ export function subscribeToSharedSheetUrl(
     return () => {};
   }
 }
+
+/**
+ * Save the entire active dashboard data into Firestore so anyone viewing the app link
+ * (in Incognito, on mobile, or across other systems) sees the exact same data in real time!
+ */
+export async function saveSharedDashboardData(dashboardData: DashboardData): Promise<void> {
+  try {
+    const configRef = doc(db, CONFIG_COLLECTION, 'active_dashboard');
+    const payload = {
+      fileName: dashboardData.fileName || 'VZONE.XLSX',
+      sheetSourceUrl: dashboardData.sheetSourceUrl || '',
+      lastUpdated: dashboardData.lastUpdated || new Date().toISOString(),
+      period: dashboardData.period || '',
+      selectedMonth: dashboardData.selectedMonth || '',
+      availableMonths: dashboardData.availableMonths || [],
+      worksCompleted: dashboardData.worksCompleted || [],
+      suggestions: dashboardData.suggestions || [],
+      socialAudit: dashboardData.socialAudit || {},
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(configRef, payload);
+  } catch (err) {
+    console.warn('Failed to save shared dashboard to Firestore:', err);
+  }
+}
+
+/**
+ * Subscribe to the shared active dashboard data from Firestore.
+ * This runs for ANY device, incognito tab, or recipient of the link without login.
+ */
+export function subscribeToSharedDashboardData(
+  onDashboardUpdated: (data: DashboardData) => void
+): () => void {
+  try {
+    const configRef = doc(db, CONFIG_COLLECTION, 'active_dashboard');
+    return onSnapshot(
+      configRef,
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data();
+          if (raw && Array.isArray(raw.worksCompleted) && raw.worksCompleted.length > 0) {
+            const parsedData: DashboardData = {
+              fileName: raw.fileName || 'VZONE.XLSX',
+              sheetSourceUrl: raw.sheetSourceUrl || '',
+              lastUpdated: raw.lastUpdated || new Date().toLocaleDateString(),
+              period: raw.period || raw.selectedMonth || 'Nov 2026',
+              selectedMonth: raw.selectedMonth || 'Nov 2026',
+              availableMonths: Array.isArray(raw.availableMonths) ? raw.availableMonths : [],
+              worksCompleted: raw.worksCompleted,
+              suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : [],
+              socialAudit: raw.socialAudit || undefined,
+            };
+            onDashboardUpdated(parsedData);
+          }
+        }
+      },
+      (error) => {
+        console.warn('Firestore active_dashboard subscription error:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('Failed to subscribe to active_dashboard:', err);
+    return () => {};
+  }
+}
+
