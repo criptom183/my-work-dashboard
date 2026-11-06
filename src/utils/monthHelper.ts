@@ -80,9 +80,30 @@ export function isMonthColumnHeader(header: string): boolean {
 /**
  * Checks if a string matches or contains a month identification (e.g. "Oct 2026", "Sep 2026", "9/1/2026", "2026-09-01")
  */
-export function isMonthName(str: string): boolean {
-  if (!str) return false;
+export function isMonthName(str: any): boolean {
+  if (!str && str !== 0) return false;
+
+  // If already a Date object
+  if (str instanceof Date && !isNaN(str.getTime())) {
+    return true;
+  }
+
+  // If numeric Excel date serial (e.g., 46269 is Sep 2026, 46300 is Oct 2026)
+  const num =
+    typeof str === 'number'
+      ? str
+      : typeof str === 'string' && /^\d{5}(\.\d+)?$/.test(str.trim())
+      ? parseFloat(str.trim())
+      : NaN;
+  if (!isNaN(num) && num >= 35000 && num <= 60000) {
+    const d = new Date((num - 25569) * 86400 * 1000);
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 2000 && d.getFullYear() <= 2040) {
+      return true;
+    }
+  }
+
   const s = String(str).trim().toLowerCase();
+  if (!s) return false;
 
   // "Month 1", "Month 2", "M1", "M2"
   if (/^month\s*\d+$/i.test(s) || /^m\d+$/i.test(s)) return true;
@@ -97,7 +118,7 @@ export function isMonthName(str: string): boolean {
   // "YYYY-MM-DD" e.g. 2026-09-01
   if (/^\d{4}[-/.]0?([1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$/.test(s)) return true;
 
-  // Month word token check
+  // Month word token check (e.g. "Sep 2026", "Oct 2026", "September", "Sep-26")
   const words = s.split(/[\s\-_/.,]+/);
   return words.some((w) => !!MONTH_ALIASES[w]);
 }
@@ -105,8 +126,34 @@ export function isMonthName(str: string): boolean {
 /**
  * Normalizes any month string or date into standard representation (e.g., "Oct 2026", "Sep 2026")
  */
-export function normalizeMonth(str: string): string {
-  if (!str) return 'Current Month';
+export function normalizeMonth(str: any): string {
+  if (!str && str !== 0) return 'Current Month';
+
+  // Handle Date instance
+  if (str instanceof Date && !isNaN(str.getTime())) {
+    const mIdx = str.getMonth();
+    const short = MONTH_SHORT_NAMES[mIdx] || '';
+    const shortCap = short.charAt(0).toUpperCase() + short.slice(1);
+    return `${shortCap} ${str.getFullYear()}`;
+  }
+
+  // Handle Excel date serial number (e.g., 46269 -> Sep 2026)
+  const num =
+    typeof str === 'number'
+      ? str
+      : typeof str === 'string' && /^\d{5}(\.\d+)?$/.test(str.trim())
+      ? parseFloat(str.trim())
+      : NaN;
+  if (!isNaN(num) && num >= 35000 && num <= 60000) {
+    const d = new Date((num - 25569) * 86400 * 1000);
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 2000 && d.getFullYear() <= 2040) {
+      const mIdx = d.getMonth();
+      const short = MONTH_SHORT_NAMES[mIdx] || '';
+      const shortCap = short.charAt(0).toUpperCase() + short.slice(1);
+      return `${shortCap} ${d.getFullYear()}`;
+    }
+  }
+
   const raw = String(str).trim();
   const lower = raw.toLowerCase();
 
@@ -168,7 +215,7 @@ export function normalizeMonth(str: string): string {
   if (foundMonth && foundYear) {
     return `${foundMonth.shortName} ${foundYear}`;
   } else if (foundMonth) {
-    return foundMonth.shortName;
+    return `${foundMonth.shortName} 2026`;
   }
 
   // Fallback to capitalized trimmed text

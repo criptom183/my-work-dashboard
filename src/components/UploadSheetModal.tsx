@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Link2,
@@ -10,9 +10,12 @@ import {
   ExternalLink,
   ShieldCheck,
   Unlink,
+  UploadCloud,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { DashboardData, SyncSettings, AutoSyncInterval } from '../types';
 import { fetchAndParseGoogleSheet } from '../utils/googleSheetSync';
+import { parseExcelWorkbook } from '../utils/sheetParser';
 
 interface UploadSheetModalProps {
   isOpen: boolean;
@@ -43,6 +46,9 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(syncSettings.autoSync);
   const [syncInterval, setSyncInterval] = useState<AutoSyncInterval>(syncSettings.interval);
 
+  const [activeSourceTab, setActiveSourceTab] = useState<'link' | 'file'>('link');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (isOpen) {
       setGoogleSheetUrl(currentSheetUrl);
@@ -54,6 +60,45 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
   }, [isOpen, currentSheetUrl, syncSettings]);
 
   if (!isOpen) return null;
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const buffer = evt.target?.result as ArrayBuffer;
+        const bytes = new Uint8Array(buffer);
+        const workbook = XLSX.read(bytes, { type: 'array', cellDates: true });
+        const parsedData = parseExcelWorkbook(workbook, file.name);
+
+        setSuccessMessage(
+          `Imported "${file.name}"! Loaded ${parsedData.worksCompleted.length} deliverables across ${
+            parsedData.availableMonths?.join(', ') || 'months'
+          }.`
+        );
+
+        setTimeout(() => {
+          onDataLoaded(parsedData, saveToLocalMemory);
+          onClose();
+        }, 600);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to parse Excel file.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    reader.onerror = () => {
+      setErrorMessage('Failed to read file.');
+      setIsLoading(false);
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   // Process Google Sheet URL and start live link
   const handleGoogleSheetSubmit = async (e: React.FormEvent) => {
@@ -103,14 +148,14 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200/60">
-              <Link2 className="w-5 h-5 text-teal-600" />
+              <FileSpreadsheet className="w-5 h-5 text-teal-600" />
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 leading-tight">
-                Link Google Sheet
+                Data Source & Sync
               </h3>
               <p className="text-xs text-slate-500">
-                Connect your sheet for direct, real-time live synchronization
+                Connect live Google Sheet or upload your Excel template (VZONE.XLSX)
               </p>
             </div>
           </div>
@@ -120,6 +165,32 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
             className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="px-5 pt-3 border-b border-slate-100 flex items-center gap-2">
+          <button
+            onClick={() => setActiveSourceTab('link')}
+            className={`pb-2.5 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+              activeSourceTab === 'link'
+                ? 'border-[#E11D74] text-[#E11D74]'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            <span>Link Google Sheet</span>
+          </button>
+          <button
+            onClick={() => setActiveSourceTab('file')}
+            className={`pb-2.5 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+              activeSourceTab === 'file'
+                ? 'border-[#E11D74] text-[#E11D74]'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <UploadCloud className="w-3.5 h-3.5" />
+            <span>Upload Excel File (.xlsx)</span>
           </button>
         </div>
 
@@ -145,8 +216,38 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleGoogleSheetSubmit} className="space-y-4">
+          {activeSourceTab === 'file' ? (
+            <div className="space-y-4">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+              />
+
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-slate-300 hover:border-[#E11D74] rounded-2xl p-8 text-center cursor-pointer transition-all hover:bg-slate-50 group"
+              >
+                <div className="w-12 h-12 mx-auto rounded-xl bg-pink-50 text-[#E11D74] flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <UploadCloud className="w-6 h-6" />
+                </div>
+                <p className="text-sm font-bold text-slate-800">
+                  Click to browse or drop your VZONE.XLSX file here
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Supports .xlsx, .xls, and .csv with multi-month columns (Oct 2026, Sep 2026)
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600">
+                <span className="font-bold text-slate-800 block mb-1">Automatic Multi-Month Extraction:</span>
+                Your template columns (<code className="bg-white px-1 py-0.5 rounded border border-slate-200 font-semibold text-slate-800">Oct 2026</code> and <code className="bg-white px-1 py-0.5 rounded border border-slate-200 font-semibold text-slate-800">Sep 2026</code>) are automatically parsed, calculating month-over-month comparisons, trends, and item totals.
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleGoogleSheetSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                 Google Sheet URL
@@ -282,6 +383,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
               )}
             </div>
           </form>
+          )}
         </div>
       </div>
     </div>

@@ -228,7 +228,13 @@ export default function App() {
   useEffect(() => {
     const loaded = loadDashboardFromStorage();
     if (loaded && loaded.data) {
-      setData(loaded.data);
+      // If loaded cache has older version (< 18 deliverables or missing template items), upgrade to the new 18-item template
+      if (!loaded.data.worksCompleted || loaded.data.worksCompleted.length < 15) {
+        setData(initialDashboardData);
+        saveDashboardToStorage(initialDashboardData);
+      } else {
+        setData(loaded.data);
+      }
       setIsSavedInStorage(true);
       setSavedMeta(loaded.meta);
 
@@ -238,6 +244,8 @@ export default function App() {
         }, 1000);
         return () => clearTimeout(timer);
       }
+    } else {
+      setData(initialDashboardData);
     }
   }, [handleSyncGoogleSheet]);
 
@@ -596,6 +604,7 @@ export default function App() {
           {/* Top 4 KPI Metric Cards */}
           <BrandKpiCards
             data={currentPeriodData}
+            allWorks={data.worksCompleted}
             onScrollToWorks={() => {
               const el = document.getElementById('works-section');
               if (el) el.scrollIntoView({ behavior: 'smooth' });

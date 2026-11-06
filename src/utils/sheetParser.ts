@@ -128,7 +128,11 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
     for (const sheetName of monthSheets) {
       const normMonth = normalizeMonth(sheetName);
       const sheet = workbook.Sheets[sheetName];
-      const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        raw: false,
+        defval: '',
+      });
       if (!rawRows || rawRows.length === 0) continue;
       const parsed = parseWorksFromRows(rawRows, normMonth);
       for (const item of parsed) {
@@ -142,7 +146,11 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
   if (works.length === 0) {
     for (const sheetName of sheetNames) {
       const sheet = workbook.Sheets[sheetName];
-      const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        raw: false,
+        defval: '',
+      });
       if (!rawRows || rawRows.length === 0) continue;
 
     const lowerName = sheetName.toLowerCase();
@@ -176,7 +184,11 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
   if (works.length === 0 || suggestions.length === 0) {
     for (const sheetName of sheetNames) {
       const sheet = workbook.Sheets[sheetName];
-      const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        raw: false,
+        defval: '',
+      });
       if (!rawRows || rawRows.length === 0) continue;
 
       const parsed = parseCombinedSheet(rawRows);
@@ -191,7 +203,11 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
   // If still empty, attempt direct tabular parse of first sheet
   if (works.length === 0 && sheetNames.length > 0) {
     const firstSheet = workbook.Sheets[sheetNames[0]];
-    const rawRows: any[] = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+    const rawRows: any[] = XLSX.utils.sheet_to_json(firstSheet, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
     if (rawRows && rawRows.length > 0) {
       works = parseWorksFromRows(rawRows);
     }

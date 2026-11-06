@@ -84,7 +84,7 @@ export async function fetchAndParseGoogleSheet(url: string): Promise<DashboardDa
         // Validate standard Zip magic header: PK (0x50, 0x4B)
         const isZip = bytes.length > 50 && bytes[0] === 0x50 && bytes[1] === 0x4b;
         if (isZip) {
-          const workbook = XLSX.read(bytes, { type: 'array' });
+          const workbook = XLSX.read(bytes, { type: 'array', cellDates: true });
           if (workbook.SheetNames && workbook.SheetNames.length > 0) {
             const parsedData = parseExcelWorkbook(workbook, 'Live Google Sheet');
             parsedData.sheetSourceUrl = url;
@@ -134,7 +134,7 @@ export async function fetchAndParseGoogleSheet(url: string): Promise<DashboardDa
       );
     }
 
-    const workbook = XLSX.read(csvText, { type: 'string' });
+    const workbook = XLSX.read(csvText, { type: 'string', cellDates: true });
     const parsedData = parseExcelWorkbook(workbook, 'Live Google Sheet');
     parsedData.sheetSourceUrl = url;
 

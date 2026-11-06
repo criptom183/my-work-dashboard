@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { WorkItem } from '../types';
+import { isSameMonth } from '../utils/monthHelper';
 
 interface BrandWorksCompletedProps {
   works: WorkItem[];
@@ -245,11 +246,24 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                   <tr key={w.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-3 font-bold text-slate-900">{w.activity}</td>
                     <td className="py-3 px-3 text-slate-500">{w.category}</td>
-                    {availableMonths.map((m) => (
-                      <td key={m} className="py-3 px-3 text-right text-slate-700 font-semibold">
-                        {w.monthlyBreakdown ? w.monthlyBreakdown[m] || 0 : w.month === m ? w.count : 0}
-                      </td>
-                    ))}
+                    {availableMonths.map((m) => {
+                      let monthVal = 0;
+                      if (w.monthlyBreakdown) {
+                        for (const [bm, count] of Object.entries(w.monthlyBreakdown)) {
+                          if (isSameMonth(bm, m)) {
+                            monthVal = Number(count || 0);
+                            break;
+                          }
+                        }
+                      } else if (isSameMonth(w.month, m)) {
+                        monthVal = w.count;
+                      }
+                      return (
+                        <td key={m} className="py-3 px-3 text-right text-slate-700 font-semibold">
+                          {monthVal}
+                        </td>
+                      );
+                    })}
                     <td className="py-3 px-3 text-right font-extrabold text-[#E11D74]">
                       {totalAll}
                     </td>

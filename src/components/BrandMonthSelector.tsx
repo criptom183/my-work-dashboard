@@ -1,5 +1,6 @@
 import React from 'react';
 import { WorkItem } from '../types';
+import { isSameMonth } from '../utils/monthHelper';
 
 interface BrandMonthSelectorProps {
   availableMonths: string[];
@@ -25,10 +26,14 @@ export const BrandMonthSelector: React.FC<BrandMonthSelectorProps> = ({
       }, 0);
     }
     return allWorks.reduce((acc, curr) => {
-      if (curr.monthlyBreakdown && curr.monthlyBreakdown[m] !== undefined) {
-        return acc + curr.monthlyBreakdown[m];
+      if (curr.monthlyBreakdown) {
+        for (const [key, count] of Object.entries(curr.monthlyBreakdown)) {
+          if (isSameMonth(key, m)) {
+            return acc + (Number(count) || 0);
+          }
+        }
       }
-      if (curr.month === m) {
+      if (isSameMonth(curr.month, m)) {
         return acc + (curr.count || 0);
       }
       return acc;

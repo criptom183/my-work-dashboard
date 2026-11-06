@@ -1,15 +1,17 @@
 import React from 'react';
 import { AlignLeft, Star, BarChart2 } from 'lucide-react';
-import { DashboardData } from '../types';
+import { DashboardData, WorkItem } from '../types';
 import { computeMoMStats } from '../utils/monthHelper';
 
 interface BrandKpiCardsProps {
   data: DashboardData;
+  allWorks?: WorkItem[];
   onScrollToWorks?: () => void;
 }
 
 export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
   data,
+  allWorks,
   onScrollToWorks,
 }) => {
   const works = (data.worksCompleted || []).filter((w) => (w.count || 0) > 0);
@@ -18,7 +20,8 @@ export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
 
   const selectedMonth = data.selectedMonth || 'Oct 2026';
   const availableMonths = data.availableMonths || [];
-  const momStats = computeMoMStats(data.worksCompleted, selectedMonth, availableMonths);
+  const worksForMoM = allWorks && allWorks.length > 0 ? allWorks : data.worksCompleted;
+  const momStats = computeMoMStats(worksForMoM, selectedMonth, availableMonths);
 
   // Categories count
   const categories = Array.from(new Set(works.map((w) => w.category).filter(Boolean)));
@@ -81,26 +84,64 @@ export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
                 <stop offset="100%" stopColor="#E11D74" />
               </linearGradient>
             </defs>
-            {/* The Curve from Sep (top) to Oct (bottom) */}
-            <path
-              d="M 10 12 C 55 12, 110 32, 160 32"
-              fill="none"
-              stroke="url(#sparklineGrad)"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
-            {/* Sep dot */}
-            <circle cx="10" cy="12" r="2.5" fill="#F59E0B" />
-            {/* Oct glowing point */}
-            <circle cx="160" cy="32" r="5" fill="#E11D74" />
-            <circle cx="160" cy="32" r="2.5" fill="#FFFFFF" />
-            {/* Labels */}
-            <text x="10" y="7" fill="#9D9BC2" fontSize="8" fontWeight="600">
-              Sep
-            </text>
-            <text x="150" y="24" fill="#9D9BC2" fontSize="8" fontWeight="600">
-              Oct
-            </text>
+            {hasMoM ? (
+              isNegative ? (
+                <>
+                  {/* Downward Curve */}
+                  <path
+                    d="M 10 12 C 55 12, 110 32, 160 32"
+                    fill="none"
+                    stroke="url(#sparklineGrad)"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                  <circle cx="10" cy="12" r="2.5" fill="#F59E0B" />
+                  <circle cx="160" cy="32" r="5" fill="#E11D74" />
+                  <circle cx="160" cy="32" r="2.5" fill="#FFFFFF" />
+                  <text x="10" y="7" fill="#9D9BC2" fontSize="8" fontWeight="600">
+                    {prevMonthName.slice(0, 3)}
+                  </text>
+                  <text x="150" y="24" fill="#9D9BC2" fontSize="8" fontWeight="600">
+                    {selectedMonth.slice(0, 3)}
+                  </text>
+                </>
+              ) : (
+                <>
+                  {/* Upward Curve */}
+                  <path
+                    d="M 10 30 C 55 30, 110 12, 160 12"
+                    fill="none"
+                    stroke="url(#sparklineGrad)"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                  <circle cx="10" cy="30" r="2.5" fill="#F59E0B" />
+                  <circle cx="160" cy="12" r="5" fill="#E11D74" />
+                  <circle cx="160" cy="12" r="2.5" fill="#FFFFFF" />
+                  <text x="10" y="38" fill="#9D9BC2" fontSize="8" fontWeight="600">
+                    {prevMonthName.slice(0, 3)} ({prevMonthTotal})
+                  </text>
+                  <text x="140" y="7" fill="#E11D74" fontSize="8" fontWeight="bold">
+                    {selectedMonth.slice(0, 3)} ({totalItemsDelivered})
+                  </text>
+                </>
+              )
+            ) : (
+              <>
+                <path
+                  d="M 10 20 L 160 20"
+                  fill="none"
+                  stroke="#433F85"
+                  strokeWidth="2"
+                  strokeDasharray="4 4"
+                />
+                <circle cx="160" cy="20" r="4" fill="#E11D74" />
+                <circle cx="160" cy="20" r="2" fill="#FFFFFF" />
+                <text x="12" y="14" fill="#9D9BC2" fontSize="8" fontWeight="600">
+                  {selectedMonth === 'all' ? 'Cumulative Volume' : `${selectedMonth} Baseline`}
+                </text>
+              </>
+            )}
           </svg>
         </div>
 
