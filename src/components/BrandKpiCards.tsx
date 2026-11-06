@@ -38,11 +38,18 @@ export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
   const avgPerStream =
     totalWorkStreams > 0 ? (totalItemsDelivered / totalWorkStreams).toFixed(1) : '0.0';
 
-  const isOct = selectedMonth.includes('Oct');
+  const hasMoM =
+    momStats.prevMonth !== null &&
+    momStats.deltaCount !== null &&
+    momStats.percentChange !== null;
   const prevMonthName = momStats.prevMonth || 'Sep 2026';
-  const prevMonthTotal = momStats.prevTotal || 100;
-  const isNegative = momStats.deltaCount < 0;
-  const percentFormatted = `${momStats.percentChange >= 0 ? '+' : ''}${momStats.percentChange.toFixed(1)}%`;
+  const prevMonthTotal = momStats.prevTotal ?? 100;
+  const isNegative = (momStats.deltaCount ?? 0) < 0;
+  const deltaFormatted = Math.abs(momStats.deltaCount ?? 0);
+  const percentFormatted =
+    momStats.percentChange !== null && momStats.percentChange !== undefined
+      ? `${momStats.percentChange >= 0 ? '+' : ''}${momStats.percentChange.toFixed(1)}%`
+      : '0.0%';
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -100,10 +107,20 @@ export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
         {/* Bottom MoM Comparison Pill */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white/10 text-white border border-white/10">
-            <span className={isNegative ? 'text-rose-300' : 'text-emerald-300'}>
-              {isNegative ? '↓' : '↑'} {Math.abs(momStats.deltaCount)} • {percentFormatted}
-            </span>
-            <span className="text-slate-300">vs {prevMonthName} ({prevMonthTotal})</span>
+            {hasMoM ? (
+              <>
+                <span className={isNegative ? 'text-rose-300' : 'text-emerald-300'}>
+                  {isNegative ? '↓' : '↑'} {deltaFormatted} • {percentFormatted}
+                </span>
+                <span className="text-slate-300">vs {prevMonthName} ({prevMonthTotal})</span>
+              </>
+            ) : (
+              <span className="text-slate-200">
+                {selectedMonth === 'all'
+                  ? 'Cumulative total across periods'
+                  : `Base period (${totalItemsDelivered} items)`}
+              </span>
+            )}
           </div>
         </div>
       </div>

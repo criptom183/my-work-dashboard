@@ -454,8 +454,6 @@ export default function App() {
           currentSheetUrl={data.sheetSourceUrl || ''}
           syncSettings={syncSettings}
           onUpdateSyncSettings={handleUpdateSyncSettings}
-          onSyncNow={() => handleSyncGoogleSheet(false)}
-          isSyncing={isSyncing}
         />
       </div>
     );
@@ -650,8 +648,6 @@ export default function App() {
         currentSheetUrl={data.sheetSourceUrl || ''}
         syncSettings={syncSettings}
         onUpdateSyncSettings={handleUpdateSyncSettings}
-        onSyncNow={() => handleSyncGoogleSheet(false)}
-        isSyncing={isSyncing}
       />
     </div>
   );
