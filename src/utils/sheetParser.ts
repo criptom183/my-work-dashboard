@@ -1052,23 +1052,27 @@ export function exportToCsv(data: DashboardData): string {
   if (data.selectedMonth) {
     lines.push(`Selected Period: ${data.selectedMonth}`);
   }
+  const activeListNote = data.workListNotes?.[`works_${data.selectedMonth || ''}`];
+  if (activeListNote) {
+    lines.push(`Work List Note: "${activeListNote.replace(/"/g, '""')}"`);
+  }
   lines.push(``);
   lines.push(`WORKS COMPLETED`);
 
   const hasMultipleMonths = data.availableMonths && data.availableMonths.length > 1;
 
   if (hasMultipleMonths) {
-    lines.push(`S.No,Month,Activity,Delivered Count,Category,Details / Notes`);
+    lines.push(`S.No,Month,Activity,Delivered Count,Category,Note,Scope Description`);
     data.worksCompleted.forEach((w, idx) => {
       lines.push(
-        `${idx + 1},"${(w.month || 'Current Month').replace(/"/g, '""')}","${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.notes || '').replace(/"/g, '""')}"`
+        `${idx + 1},"${(w.month || 'Current Month').replace(/"/g, '""')}","${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.customNote || '').replace(/"/g, '""')}","${(w.notes || '').replace(/"/g, '""')}"`
       );
     });
   } else {
-    lines.push(`S.No,Activity,Delivered Count,Category,Details / Notes`);
+    lines.push(`S.No,Activity,Delivered Count,Category,Note,Scope Description`);
     data.worksCompleted.forEach((w, idx) => {
       lines.push(
-        `${idx + 1},"${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.notes || '').replace(/"/g, '""')}"`
+        `${idx + 1},"${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.customNote || '').replace(/"/g, '""')}","${(w.notes || '').replace(/"/g, '""')}"`
       );
     });
   }

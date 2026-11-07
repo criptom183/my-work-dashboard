@@ -142,18 +142,37 @@ export function subscribeToSharedSheetUrl(
 export async function saveSharedDashboardData(dashboardData: DashboardData): Promise<void> {
   try {
     const configRef = doc(db, CONFIG_COLLECTION, 'active_dashboard');
-    const payload = {
-      fileName: dashboardData.fileName || 'VZONE.XLSX',
-      sheetSourceUrl: dashboardData.sheetSourceUrl || '',
-      lastUpdated: dashboardData.lastUpdated || new Date().toISOString(),
-      period: dashboardData.period || '',
-      selectedMonth: dashboardData.selectedMonth || '',
-      availableMonths: dashboardData.availableMonths || [],
-      worksCompleted: dashboardData.worksCompleted || [],
-      suggestions: dashboardData.suggestions || [],
-      socialAudit: dashboardData.socialAudit || {},
-      updatedAt: new Date().toISOString(),
-    };
+    const sanitizedWorks = (dashboardData.worksCompleted || []).map((w) => {
+      const item: Record<string, any> = {
+        id: w.id || '',
+        activity: w.activity || '',
+        count: Number(w.count || 0),
+        category: w.category || 'General',
+      };
+      if (w.notes !== undefined) item.notes = w.notes;
+      if (w.customNote !== undefined) item.customNote = w.customNote;
+      if (w.monthlyNotes !== undefined) item.monthlyNotes = w.monthlyNotes;
+      if (w.highlight !== undefined) item.highlight = w.highlight;
+      if (w.month !== undefined) item.month = w.month;
+      if (w.monthlyBreakdown !== undefined) item.monthlyBreakdown = w.monthlyBreakdown;
+      return item;
+    });
+
+    const payload = JSON.parse(
+      JSON.stringify({
+        fileName: dashboardData.fileName || 'VZONE.XLSX',
+        sheetSourceUrl: dashboardData.sheetSourceUrl || '',
+        lastUpdated: dashboardData.lastUpdated || new Date().toISOString(),
+        period: dashboardData.period || '',
+        selectedMonth: dashboardData.selectedMonth || '',
+        availableMonths: dashboardData.availableMonths || [],
+        worksCompleted: sanitizedWorks,
+        workListNotes: dashboardData.workListNotes || {},
+        suggestions: dashboardData.suggestions || [],
+        socialAudit: dashboardData.socialAudit || {},
+        updatedAt: new Date().toISOString(),
+      })
+    );
     await setDoc(configRef, payload);
   } catch (err) {
     console.warn('Failed to save shared dashboard to Firestore:', err);
@@ -183,6 +202,10 @@ export function subscribeToSharedDashboardData(
               selectedMonth: raw.selectedMonth || 'Nov 2026',
               availableMonths: Array.isArray(raw.availableMonths) ? raw.availableMonths : [],
               worksCompleted: raw.worksCompleted,
+              workListNotes:
+                raw.workListNotes && typeof raw.workListNotes === 'object'
+                  ? raw.workListNotes
+                  : {},
               suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : [],
               socialAudit: raw.socialAudit || undefined,
             };

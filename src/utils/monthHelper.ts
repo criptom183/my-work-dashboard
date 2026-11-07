@@ -434,10 +434,21 @@ export function getWorksForSelectedMonth(
         monthCount = w.count;
       }
 
+      let resolvedCustomNote = w.customNote;
+      if (w.monthlyNotes) {
+        for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
+          if (isSameMonth(m, selectedMonth)) {
+            resolvedCustomNote = noteText;
+            break;
+          }
+        }
+      }
+
       result.push({
         ...w,
         count: monthCount,
         month: selectedMonth,
+        customNote: resolvedCustomNote,
       });
     }
 

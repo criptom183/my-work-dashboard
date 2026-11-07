@@ -322,19 +322,48 @@ export default function App() {
               }
             : undefined;
 
+          const updatedMonthlyNotes =
+            updates.customNote !== undefined
+              ? {
+                  ...(w.monthlyNotes || {}),
+                  [selectedMonth]: updates.customNote,
+                }
+              : w.monthlyNotes;
+
           return {
             ...w,
             ...updates,
             monthlyBreakdown: updatedBreakdown,
+            monthlyNotes: updatedMonthlyNotes,
           };
         }
         return w;
       });
-      const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
+      const updatedDashboard: DashboardData = { ...prev, worksCompleted: updatedWorks };
+      saveDashboardToStorage(updatedDashboard);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
       return updatedDashboard;
     });
-    setIsSavedInStorage(false);
+    setIsSavedInStorage(true);
+    showToast('Work item updated & synced!');
+  };
+
+  const handleUpdateWorkListNote = (listKey: string, noteText: string) => {
+    setData((prev) => {
+      const updatedNotes = {
+        ...(prev.workListNotes || {}),
+        [listKey]: noteText,
+      };
+      const updatedDashboard: DashboardData = {
+        ...prev,
+        workListNotes: updatedNotes,
+      };
+      saveDashboardToStorage(updatedDashboard);
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
+    setIsSavedInStorage(true);
+    showToast(noteText ? 'Note saved to work list!' : 'Note cleared.');
   };
 
   const handleAddWorkItem = (
@@ -344,13 +373,15 @@ export default function App() {
     notes?: string
   ) => {
     const newId = `work-${Date.now()}`;
-    const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Oct 2026') : selectedMonth;
+    const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
     const newWork: WorkItem = {
       id: newId,
       activity,
       count,
       category,
       notes,
+      customNote: notes || undefined,
+      monthlyNotes: notes ? { [targetMonth]: notes } : undefined,
       month: targetMonth,
       monthlyBreakdown: {
         [targetMonth]: count,
@@ -362,10 +393,11 @@ export default function App() {
         ...prev,
         worksCompleted: [newWork, ...prev.worksCompleted],
       };
+      saveDashboardToStorage(updatedDashboard);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
       return updatedDashboard;
     });
-    setIsSavedInStorage(false);
+    setIsSavedInStorage(true);
     showToast(`Added deliverable "${activity}"!`);
   };
 
@@ -377,10 +409,11 @@ export default function App() {
           (w) => w.id !== id && w.id.replace(/^all-/, '') !== id.replace(/^all-/, '')
         ),
       };
+      saveDashboardToStorage(updatedDashboard);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
       return updatedDashboard;
     });
-    setIsSavedInStorage(false);
+    setIsSavedInStorage(true);
   };
 
   const handleExportCsv = () => {
@@ -407,44 +440,71 @@ export default function App() {
   const handleResetData = () => {
     setData(initialDashboardData);
     saveSharedDashboardData(initialDashboardData).catch(console.warn);
-    setSelectedMonth(initialDashboardData.selectedMonth || 'Oct 2026');
+    setSelectedMonth(initialDashboardData.selectedMonth || 'Nov 2026');
     setIsSavedInStorage(false);
     showToast('Reloaded sample report data.', 'info');
   };
 
   const handleDataLoaded = (newData: DashboardData, saveToLocalMemory: boolean = true) => {
-    setData(newData);
-    // Broadcast to Cloud Firestore so all recipients & incognito tabs get the new data in real time!
-    saveSharedDashboardData(newData).catch(console.warn);
-    if (newData.sheetSourceUrl) {
-      saveSharedSheetUrl(newData.sheetSourceUrl).catch(console.warn);
+    // Preserve any existing custom notes and workListNotes when importing updated counts
+    const existingByActivity = new Map<string, WorkItem>();
+    for (const w of dataRef.current.worksCompleted || []) {
+      existingByActivity.set(w.activity.trim().toLowerCase(), w);
     }
 
-    if (newData.tasks && newData.tasks.length > 0) {
-      handleUpdateTasks(newData.tasks);
+    const mergedWorks = (newData.worksCompleted || []).map((w) => {
+      const match = existingByActivity.get(w.activity.trim().toLowerCase());
+      if (match) {
+        return {
+          ...w,
+          customNote: w.customNote || match.customNote,
+          monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+        };
+      }
+      return w;
+    });
+
+    const mergedData: DashboardData = {
+      ...newData,
+      worksCompleted: mergedWorks,
+      workListNotes: {
+        ...(dataRef.current.workListNotes || {}),
+        ...(newData.workListNotes || {}),
+      },
+    };
+
+    setData(mergedData);
+    // Broadcast to Cloud Firestore so all recipients & incognito tabs get the new data in real time!
+    saveSharedDashboardData(mergedData).catch(console.warn);
+    if (mergedData.sheetSourceUrl) {
+      saveSharedSheetUrl(mergedData.sheetSourceUrl).catch(console.warn);
     }
-    if (newData.selectedMonth) {
-      setSelectedMonth(newData.selectedMonth);
-    } else if (newData.availableMonths && newData.availableMonths.length > 0) {
-      setSelectedMonth(newData.availableMonths[newData.availableMonths.length - 1]);
+
+    if (mergedData.tasks && mergedData.tasks.length > 0) {
+      handleUpdateTasks(mergedData.tasks);
+    }
+    if (mergedData.selectedMonth) {
+      setSelectedMonth(mergedData.selectedMonth);
+    } else if (mergedData.availableMonths && mergedData.availableMonths.length > 0) {
+      setSelectedMonth(mergedData.availableMonths[mergedData.availableMonths.length - 1]);
     }
 
     if (saveToLocalMemory) {
-      saveDashboardToStorage(newData);
+      saveDashboardToStorage(mergedData);
       setIsSavedInStorage(true);
       const meta = {
         savedAt: new Date().toLocaleString(undefined, {
           dateStyle: 'medium',
           timeStyle: 'short',
         }),
-        fileName: newData.fileName,
-        totalWorks: newData.worksCompleted.length,
+        fileName: mergedData.fileName,
+        totalWorks: mergedData.worksCompleted.length,
       };
       setSavedMeta(meta);
-      showToast(`Imported ${newData.fileName} & synced to Cloud Firestore!`);
+      showToast(`Imported ${mergedData.fileName} & synced to Cloud Firestore!`);
     } else {
       setIsSavedInStorage(false);
-      showToast(`Imported ${newData.fileName} and broadcast to live dashboard.`);
+      showToast(`Imported ${mergedData.fileName} and broadcast to live dashboard.`);
     }
   };
 
@@ -675,6 +735,10 @@ export default function App() {
                 availableMonths={data.availableMonths || []}
                 selectedMonth={selectedMonth}
                 allWorks={data.worksCompleted}
+                workListNote={data.workListNotes?.[`works_${selectedMonth}`] || ''}
+                onUpdateWorkListNote={(note) =>
+                  handleUpdateWorkListNote(`works_${selectedMonth}`, note)
+                }
                 onAddWorkItem={handleAddWorkItem}
                 onUpdateWorkItem={handleUpdateWorkItem}
                 onDeleteWorkItem={handleDeleteWorkItem}
@@ -686,12 +750,21 @@ export default function App() {
               <BrandOutputMix
                 works={displayWorks}
                 selectedMonth={selectedMonth}
+                outputMixNote={data.workListNotes?.[`mix_${selectedMonth}`] || ''}
+                onUpdateOutputMixNote={(note) =>
+                  handleUpdateWorkListNote(`mix_${selectedMonth}`, note)
+                }
+                onUpdateWorkItem={handleUpdateWorkItem}
               />
 
               <BrandTasksWidget
                 tasks={tasks}
                 onOpenTaskManager={navigateToTasks}
                 onAddTask={navigateToTasks}
+                tasksListNote={data.workListNotes?.[`tasks_${selectedMonth}`] || ''}
+                onUpdateTasksListNote={(note) =>
+                  handleUpdateWorkListNote(`tasks_${selectedMonth}`, note)
+                }
               />
             </div>
           </div>

@@ -8,6 +8,8 @@ export interface WorkItem {
   count: number;
   category: string;
   notes?: string;
+  customNote?: string;
+  monthlyNotes?: Record<string, string>;
   highlight?: boolean;
   month?: string; // e.g. 'Oct 2026' or 'September'
   monthlyBreakdown?: Record<string, number>; // e.g. { 'Aug 2026': 15, 'Sep 2026': 18, 'Oct 2026': 21 }
@@ -62,6 +64,7 @@ export interface DashboardData {
   suggestions: SuggestionItem[];
   socialAudit: SocialAuditPlatform;
   tasks?: TaskItem[];
+  workListNotes?: Record<string, string>;
 }
 
 export type AutoSyncInterval = 'off' | '30s' | '1m' | '5m' | '15m';
