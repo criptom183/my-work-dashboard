@@ -177,7 +177,7 @@ export default function App() {
       setUnlockError(null);
       showToast('Editor mode unlocked! You can now add/edit notes and deliverables.');
     } else {
-      setUnlockError('Incorrect passcode. Please try again (passcode: vzone).');
+      setUnlockError('Incorrect passcode. Please try again.');
     }
   };
 
@@ -793,7 +793,7 @@ export default function App() {
               </div>
 
               <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                Enter passcode to unlock editor mode and manage deliverables, tasks, and notes (default: <strong className="text-slate-800">vzone</strong>).
+                Enter editor passcode to unlock editing privileges for deliverables, tasks, and notes.
               </p>
 
               <form onSubmit={handleUnlockEditor} className="space-y-3">
@@ -803,7 +803,7 @@ export default function App() {
                   </label>
                   <input
                     type="password"
-                    placeholder="Enter passcode (e.g. vzone)"
+                    placeholder="Enter editor passcode"
                     value={unlockPasscode}
                     onChange={(e) => {
                       setUnlockPasscode(e.target.value);
@@ -1084,7 +1084,7 @@ export default function App() {
             </div>
 
             <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-              Enter passcode to unlock editor privileges and edit deliverables, tasks, or notes (default: <strong className="text-slate-800">vzone</strong>).
+              Enter editor passcode to unlock editing privileges for deliverables, tasks, and notes.
             </p>
 
             <form onSubmit={handleUnlockEditor} className="space-y-3">
@@ -1094,7 +1094,7 @@ export default function App() {
                 </label>
                 <input
                   type="password"
-                  placeholder="Enter passcode (e.g. vzone)"
+                  placeholder="Enter editor passcode"
                   value={unlockPasscode}
                   onChange={(e) => {
                     setUnlockPasscode(e.target.value);

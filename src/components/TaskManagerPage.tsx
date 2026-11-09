@@ -24,7 +24,6 @@ import {
   X,
   Layers,
   ArrowUpRight,
-  Flame,
   FileSpreadsheet,
   UploadCloud,
   DownloadCloud,
@@ -140,7 +139,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [selectedPriority, setSelectedPriority] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
 
@@ -276,7 +274,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   // Form state
   const [formTitle, setFormTitle] = useState('');
   const [formDescription, setFormDescription] = useState('');
-  const [formPriority, setFormPriority] = useState<TaskPriority>('Medium');
   const [formStatus, setFormStatus] = useState<TaskStatus>('pending');
   const [formCategory, setFormCategory] = useState('Design & Web');
   const [formDueDate, setFormDueDate] = useState('');
@@ -290,7 +287,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   const inReviewCount = tasks.filter((t) => t.status === 'in-review').length;
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
   const pendingCount = tasks.filter((t) => t.status === 'pending').length;
-  const highPriorityCount = tasks.filter((t) => t.priority === 'High' && t.status !== 'completed').length;
   const completionPercentage = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
 
   // Filter tasks
@@ -309,11 +305,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
 
     // Status filter
     if (selectedStatus !== 'all' && task.status !== selectedStatus) {
-      return false;
-    }
-
-    // Priority filter
-    if (selectedPriority !== 'all' && task.priority !== selectedPriority) {
       return false;
     }
 
@@ -460,7 +451,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     setEditingTask(null);
     setFormTitle('');
     setFormDescription('');
-    setFormPriority('Medium');
     setFormStatus(presetStatus);
     setFormCategory('Design & Web');
     setFormDueDate('');
@@ -475,7 +465,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     setEditingTask(task);
     setFormTitle(task.title);
     setFormDescription(task.description || '');
-    setFormPriority(task.priority);
     setFormStatus(task.status);
     setFormCategory(task.category);
     setFormDueDate(task.dueDate || '');
@@ -519,7 +508,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
         ...editingTask,
         title: formTitle.trim(),
         description: formDescription.trim() || undefined,
-        priority: formPriority,
+        priority: 'Medium',
         status: formStatus,
         category: formCategory,
         dueDate: formDueDate || undefined,
@@ -535,7 +524,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
         id: `task-${Date.now()}`,
         title: formTitle.trim(),
         description: formDescription.trim() || undefined,
-        priority: formPriority,
+        priority: 'Medium',
         status: formStatus,
         category: formCategory,
         dueDate: formDueDate || undefined,
@@ -566,12 +555,11 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
 
   // Export tasks as CSV
   const handleExportCsv = () => {
-    const headers = ['Task ID', 'Title', 'Status', 'Priority', 'Category', 'Due Date', 'Subtasks Progress'];
+    const headers = ['Task ID', 'Title', 'Status', 'Category', 'Due Date', 'Subtasks Progress'];
     const rows = tasks.map((t) => [
       t.id,
       `"${t.title.replace(/"/g, '""')}"`,
       t.status,
-      t.priority,
       `"${t.category}"`,
       t.dueDate || '',
       t.subtasks ? `${t.subtasks.filter((s) => s.completed).length}/${t.subtasks.length}` : '',
@@ -994,15 +982,15 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
             </div>
           </div>
 
-          <div className="col-span-2 sm:col-span-1 bg-white p-4 rounded-xl border border-slate-200/90 border-l-4 border-l-rose-500 shadow-2xs">
+          <div className="col-span-2 sm:col-span-1 bg-white p-4 rounded-xl border border-slate-200/90 border-l-4 border-l-amber-500 shadow-2xs">
             <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-              <span>High Priority</span>
-              <Flame className="w-4 h-4 text-rose-500" />
+              <span>Pending Tasks</span>
+              <Clock className="w-4 h-4 text-amber-500" />
             </div>
-            <div className="mt-2 text-2xl sm:text-3xl font-extrabold text-rose-900">
-              {highPriorityCount}
+            <div className="mt-2 text-2xl sm:text-3xl font-extrabold text-amber-900">
+              {pendingCount}
             </div>
-            <p className="mt-1 text-[11px] text-rose-700">Pending urgent delivery</p>
+            <p className="mt-1 text-[11px] text-amber-700">Awaiting kick-off</p>
           </div>
         </div>
 
@@ -1014,7 +1002,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search tasks by title, assignee, category, or tags..."
+                placeholder="Search tasks by title, category, or tags..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-8 py-1.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-teal-500 focus:outline-none transition-colors"
@@ -1044,21 +1032,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                       {cat}
                     </option>
                   ))}
-                </select>
-              </div>
-
-              {/* Priority selector */}
-              <div className="inline-flex items-center gap-1.5 text-xs">
-                <span className="text-slate-400 font-medium">Priority:</span>
-                <select
-                  value={selectedPriority}
-                  onChange={(e) => setSelectedPriority(e.target.value)}
-                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-teal-500"
-                >
-                  <option value="all">All Priorities</option>
-                  <option value="High">High Priority</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Low">Low</option>
                 </select>
               </div>
 
@@ -1126,7 +1099,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                 onClick={() => {
                   setSearchQuery('');
                   setSelectedStatus('all');
-                  setSelectedPriority('all');
                   setSelectedCategory('All');
                 }}
                 className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors"
@@ -1183,21 +1155,9 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                           className="bg-white rounded-lg border border-slate-200/90 p-3.5 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between group"
                         >
                           <div>
-                            {/* Badges: Priority & Category */}
+                            {/* Badges: Category */}
                             <div className="flex items-center justify-between gap-2 mb-2">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                  task.priority === 'High'
-                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                    : task.priority === 'Medium'
-                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                    : 'bg-slate-100 text-slate-600 border border-slate-200'
-                                }`}
-                              >
-                                {task.priority} Priority
-                              </span>
-
-                              <span className="text-[10px] font-medium text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                              <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                                 {task.category}
                               </span>
                             </div>
@@ -1439,19 +1399,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                               {task.title}
                             </span>
 
-                            {/* Priority */}
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                task.priority === 'High'
-                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                  : task.priority === 'Medium'
-                                  ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
-                              }`}
-                            >
-                              {task.priority}
-                            </span>
-
                             {/* Status */}
                             <span
                               className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
@@ -1666,8 +1613,8 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                 />
               </div>
 
-              {/* Status, Priority, Category Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Status & Category Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
                     Status
@@ -1681,21 +1628,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                     <option value="in-progress">In Progress</option>
                     <option value="in-review">In Review</option>
                     <option value="completed">Completed</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Priority
-                  </label>
-                  <select
-                    value={formPriority}
-                    onChange={(e) => setFormPriority(e.target.value as TaskPriority)}
-                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  >
-                    <option value="High">High Priority</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
                   </select>
                 </div>
 
