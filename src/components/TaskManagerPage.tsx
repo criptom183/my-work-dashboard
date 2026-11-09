@@ -10,7 +10,6 @@ import {
   CheckSquare,
   Square,
   Calendar,
-  User,
   Tag,
   Trash2,
   Edit3,
@@ -251,7 +250,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   const [formPriority, setFormPriority] = useState<TaskPriority>('Medium');
   const [formStatus, setFormStatus] = useState<TaskStatus>('pending');
   const [formCategory, setFormCategory] = useState('Design & Web');
-  const [formAssignedTo, setFormAssignedTo] = useState('');
   const [formDueDate, setFormDueDate] = useState('');
   const [formTags, setFormTags] = useState('');
   const [formSubtasks, setFormSubtasks] = useState<TaskSubtask[]>([]);
@@ -273,10 +271,9 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
       const q = searchQuery.toLowerCase();
       const matchTitle = task.title.toLowerCase().includes(q);
       const matchDesc = task.description?.toLowerCase().includes(q);
-      const matchAssignee = task.assignedTo?.toLowerCase().includes(q);
       const matchCategory = task.category.toLowerCase().includes(q);
       const matchTags = task.tags?.some((t) => t.toLowerCase().includes(q));
-      if (!matchTitle && !matchDesc && !matchAssignee && !matchCategory && !matchTags) {
+      if (!matchTitle && !matchDesc && !matchCategory && !matchTags) {
         return false;
       }
     }
@@ -387,7 +384,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     setFormPriority('Medium');
     setFormStatus(presetStatus);
     setFormCategory('Design & Web');
-    setFormAssignedTo('');
     setFormDueDate('');
     setFormTags('');
     setFormSubtasks([]);
@@ -403,7 +399,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     setFormPriority(task.priority);
     setFormStatus(task.status);
     setFormCategory(task.category);
-    setFormAssignedTo(task.assignedTo || '');
     setFormDueDate(task.dueDate || '');
     setFormTags(task.tags ? task.tags.join(', ') : '');
     setFormSubtasks(task.subtasks || []);
@@ -448,7 +443,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
         priority: formPriority,
         status: formStatus,
         category: formCategory,
-        assignedTo: formAssignedTo.trim() || undefined,
         dueDate: formDueDate || undefined,
         subtasks: formSubtasks.length > 0 ? formSubtasks : undefined,
         tags: parsedTags.length > 0 ? parsedTags : undefined,
@@ -465,7 +459,6 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
         priority: formPriority,
         status: formStatus,
         category: formCategory,
-        assignedTo: formAssignedTo.trim() || undefined,
         dueDate: formDueDate || undefined,
         subtasks: formSubtasks.length > 0 ? formSubtasks : undefined,
         tags: parsedTags.length > 0 ? parsedTags : undefined,
@@ -494,14 +487,13 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
 
   // Export tasks as CSV
   const handleExportCsv = () => {
-    const headers = ['Task ID', 'Title', 'Status', 'Priority', 'Category', 'Assigned To', 'Due Date', 'Subtasks Progress'];
+    const headers = ['Task ID', 'Title', 'Status', 'Priority', 'Category', 'Due Date', 'Subtasks Progress'];
     const rows = tasks.map((t) => [
       t.id,
       `"${t.title.replace(/"/g, '""')}"`,
       t.status,
       t.priority,
       `"${t.category}"`,
-      `"${t.assignedTo || ''}"`,
       t.dueDate || '',
       t.subtasks ? `${t.subtasks.filter((s) => s.completed).length}/${t.subtasks.length}` : '',
     ]);
@@ -1042,29 +1034,14 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                             )}
                           </div>
 
-                          {/* Footer: Assignee, Due date & Quick Status Transition */}
+                          {/* Footer: Due date & Quick Status Transition */}
                           <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-col gap-2">
-                            <div className="flex items-center justify-between text-[11px] text-slate-500">
-                              {task.assignedTo ? (
-                                <div className="flex items-center gap-1 font-medium text-slate-700">
-                                  <div className="w-4 h-4 rounded-full bg-teal-100 text-teal-800 text-[9px] font-bold flex items-center justify-center">
-                                    {task.assignedTo.charAt(0).toUpperCase()}
-                                  </div>
-                                  <span className="truncate max-w-[100px]">
-                                    {task.assignedTo}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-slate-400">Unassigned</span>
-                              )}
-
-                              {task.dueDate && (
-                                <div className="flex items-center gap-1 font-medium text-slate-500">
-                                  <Calendar className="w-3 h-3 text-slate-400" />
-                                  <span>{task.dueDate}</span>
-                                </div>
-                              )}
-                            </div>
+                            {task.dueDate && (
+                              <div className="flex items-center gap-1 font-medium text-slate-500 text-[11px]">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                <span>Due: {task.dueDate}</span>
+                              </div>
+                            )}
 
                             {/* Quick Status Shift Buttons */}
                             <div className="flex items-center justify-between pt-1 border-t border-slate-50">
@@ -1219,14 +1196,8 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                             </p>
                           )}
 
-                          {/* Assignee & Due Date Meta */}
+                          {/* Due Date & Subtasks Meta */}
                           <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-500">
-                            {task.assignedTo && (
-                              <div className="flex items-center gap-1.5 font-medium text-slate-700">
-                                <User className="w-3.5 h-3.5 text-teal-600" />
-                                <span>{task.assignedTo}</span>
-                              </div>
-                            )}
 
                             {task.dueDate && (
                               <div className="flex items-center gap-1 font-medium text-slate-500">
@@ -1421,32 +1392,17 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                 </div>
               </div>
 
-              {/* Assignee & Due Date Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Assigned To
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Anwar sir, Media Team, UI Designer"
-                    value={formAssignedTo}
-                    onChange={(e) => setFormAssignedTo(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Due Date
-                  </label>
-                  <input
-                    type="date"
-                    value={formDueDate}
-                    onChange={(e) => setFormDueDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  />
-                </div>
+              {/* Due Date */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Due Date
+                </label>
+                <input
+                  type="date"
+                  value={formDueDate}
+                  onChange={(e) => setFormDueDate(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                />
               </div>
 
               {/* Subtasks / Checklist */}

@@ -11,7 +11,6 @@
         "priority": { "type": "string", "enum": ["Low", "Medium", "High"] },
         "status": { "type": "string", "enum": ["pending", "in-progress", "in-review", "completed"] },
         "category": { "type": "string", "maxLength": 150 },
-        "assignedTo": { "type": "string", "maxLength": 150 },
         "dueDate": { "type": "string", "maxLength": 50 },
         "createdAt": { "type": "string", "maxLength": 50 },
         "completedAt": { "type": "string", "maxLength": 50 },

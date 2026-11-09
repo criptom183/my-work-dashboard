@@ -358,7 +358,6 @@ export async function saveTasksToGoogleSheet(
     'Category',
     'Priority',
     'Status',
-    'Assigned To',
     'Due Date',
     'Subtasks (JSON)',
     'Last Updated',
@@ -371,7 +370,6 @@ export async function saveTasksToGoogleSheet(
     t.category || 'Deliverables',
     t.priority,
     t.status,
-    t.assignedTo || '',
     t.dueDate || '',
     t.subtasks && t.subtasks.length > 0 ? JSON.stringify(t.subtasks) : '',
     new Date().toLocaleDateString('en-US', {

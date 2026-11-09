@@ -32,7 +32,6 @@ export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
           title: 'Last mile delivery reels',
           category: 'Reels',
           priority: 'Medium' as const,
-          assignedTo: 'Unassigned',
           status: 'completed' as const,
           createdAt: new Date().toISOString(),
         };
@@ -177,10 +176,6 @@ export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
               <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/80 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                 <span>{displayTask.priority || 'Medium'} priority</span>
-              </span>
-
-              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600">
-                {displayTask.assignedTo || 'Unassigned'}
               </span>
             </div>
 
