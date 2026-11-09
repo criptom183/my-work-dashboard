@@ -26,6 +26,7 @@ interface BrandWorksCompletedProps {
   onAddWorkItem: (activity: string, count: number, category: string, notes?: string) => void;
   onUpdateWorkItem?: (id: string, updates: Partial<WorkItem>) => void;
   onDeleteWorkItem?: (id: string) => void;
+  isViewOnly?: boolean;
 }
 
 // Map activity names to appropriate icons and bar colors
@@ -83,6 +84,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   onAddWorkItem,
   onUpdateWorkItem,
   onDeleteWorkItem,
+  isViewOnly = false,
 }) => {
   const [viewMode, setViewMode] = useState<'chart' | 'trend' | 'table'>('chart');
   const [isAddingOpen, setIsAddingOpen] = useState(false);
@@ -117,7 +119,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
 
   const handleCreateActivity = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newActivity.trim()) return;
+    if (isViewOnly || !newActivity.trim()) return;
     onAddWorkItem(
       newActivity.trim(),
       parseInt(newCount, 10) || 1,
@@ -131,6 +133,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   };
 
   const openInlineNote = (item: WorkItem) => {
+    if (isViewOnly) return;
     setInlineNoteId(item.id);
     setInlineNoteText(item.customNote || '');
   };
@@ -146,6 +149,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   };
 
   const clearItemNote = (item: WorkItem) => {
+    if (isViewOnly) return;
     if (onUpdateWorkItem) {
       onUpdateWorkItem(item.id, {
         customNote: '',
@@ -169,7 +173,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
         <div>
           <div className="flex items-center gap-2.5 flex-wrap">
             <h3 className="text-lg font-bold text-slate-900">Works completed</h3>
-            {onUpdateWorkListNote && !isEditingListNote && (
+            {!isViewOnly && onUpdateWorkListNote && !isEditingListNote && (
               <button
                 type="button"
                 onClick={() => {
@@ -225,7 +229,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
       </div>
 
       {/* Section-Level Work List Note Banner / Editor */}
-      {isEditingListNote ? (
+      {!isViewOnly && isEditingListNote ? (
         <div className="mb-5 p-3.5 rounded-xl bg-amber-50/60 border border-amber-200/90">
           <label className="block text-[11px] font-bold text-amber-900 mb-1.5">
             Note for Works Completed ({selectedMonth === 'all' ? 'All Months' : selectedMonth})
@@ -280,7 +284,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
             <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
             <span className="font-medium leading-relaxed break-words">{workListNote}</span>
           </div>
-          {onUpdateWorkListNote && (
+          {!isViewOnly && onUpdateWorkListNote && (
             <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
@@ -317,7 +321,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
             visibleWorks.map((item) => {
               const { icon, bg, barColor } = getActivityIcon(item.activity);
               const percentage = totalCount > 0 ? ((item.count / totalCount) * 100).toFixed(1) : '0';
-              const isEditingThisNote = inlineNoteId === item.id;
+              const isEditingThisNote = !isViewOnly && inlineNoteId === item.id;
 
               return (
                 <div key={item.id} className="group relative">
@@ -336,19 +340,21 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                           <h4 className="text-sm font-bold text-slate-900 truncate">
                             {item.activity}
                           </h4>
-                          <button
-                            type="button"
-                            onClick={() => openInlineNote(item)}
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 ${
-                              item.customNote
-                                ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/80'
-                                : 'text-slate-400 hover:text-[#E11D74] hover:bg-pink-50/70 opacity-80 group-hover:opacity-100'
-                            }`}
-                            title={item.customNote ? 'Edit note for this item' : 'Add a small note to this item'}
-                          >
-                            <StickyNote className="w-2.5 h-2.5" />
-                            <span>{item.customNote ? 'Edit note' : '+ Note'}</span>
-                          </button>
+                          {!isViewOnly && (
+                            <button
+                              type="button"
+                              onClick={() => openInlineNote(item)}
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 ${
+                                item.customNote
+                                  ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/80'
+                                  : 'text-slate-400 hover:text-[#E11D74] hover:bg-pink-50/70 opacity-80 group-hover:opacity-100'
+                              }`}
+                              title={item.customNote ? 'Edit note for this item' : 'Add a small note to this item'}
+                            >
+                              <StickyNote className="w-2.5 h-2.5" />
+                              <span>{item.customNote ? 'Edit note' : '+ Note'}</span>
+                            </button>
+                          )}
                         </div>
 
                         <span className="text-xs font-semibold text-slate-400 tabular-nums shrink-0">
@@ -367,29 +373,31 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             <StickyNote className="w-3 h-3 text-amber-600 shrink-0" />
                             <span className="font-medium break-words">{item.customNote}</span>
                           </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => openInlineNote(item)}
-                              className="p-0.5 text-amber-700 hover:text-amber-950 cursor-pointer"
-                              title="Edit note"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => clearItemNote(item)}
-                              className="p-0.5 text-amber-700 hover:text-rose-600 cursor-pointer"
-                              title="Remove note"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
+                          {!isViewOnly && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => openInlineNote(item)}
+                                className="p-0.5 text-amber-700 hover:text-amber-950 cursor-pointer"
+                                title="Edit note"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => clearItemNote(item)}
+                                className="p-0.5 text-amber-700 hover:text-rose-600 cursor-pointer"
+                                title="Remove note"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
 
                       {/* Inline Quick Note Input */}
-                      {isEditingThisNote && (
+                      {!isViewOnly && isEditingThisNote && (
                         <div className="mb-2 p-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-1.5">
                           <StickyNote className="w-3.5 h-3.5 text-[#E11D74] shrink-0" />
                           <input
@@ -438,14 +446,22 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     {/* Right Big Count */}
                     <div className="text-right shrink-0 min-w-[44px] pl-2 flex flex-col items-end">
                       <span
-                        onClick={() => {
-                          setEditingItem(item);
-                          setEditCount(item.count);
-                          setEditNotes(item.notes || '');
-                          setEditCustomNote(item.customNote || '');
-                        }}
-                        className="text-xl font-extrabold text-slate-900 tabular-nums cursor-pointer hover:text-[#E11D74] transition-colors"
-                        title="Click to edit count or details"
+                        onClick={
+                          !isViewOnly
+                            ? () => {
+                                setEditingItem(item);
+                                setEditCount(item.count);
+                                setEditNotes(item.notes || '');
+                                setEditCustomNote(item.customNote || '');
+                              }
+                            : undefined
+                        }
+                        className={`text-xl font-extrabold text-slate-900 tabular-nums transition-colors ${
+                          !isViewOnly
+                            ? 'cursor-pointer hover:text-[#E11D74]'
+                            : 'cursor-default'
+                        }`}
+                        title={!isViewOnly ? 'Click to edit count or details' : undefined}
                       >
                         {item.count}
                       </span>
@@ -487,31 +503,35 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-900">{w.activity}</span>
-                        <button
-                          type="button"
-                          onClick={() => openInlineNote(w)}
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-slate-400 hover:text-[#E11D74] hover:bg-pink-50 transition-colors cursor-pointer"
-                          title="Add or edit note"
-                        >
-                          <StickyNote className="w-2.5 h-2.5" />
-                          <span>{w.customNote ? 'Edit note' : '+ Note'}</span>
-                        </button>
+                        {!isViewOnly && (
+                          <button
+                            type="button"
+                            onClick={() => openInlineNote(w)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-slate-400 hover:text-[#E11D74] hover:bg-pink-50 transition-colors cursor-pointer"
+                            title="Add or edit note"
+                          >
+                            <StickyNote className="w-2.5 h-2.5" />
+                            <span>{w.customNote ? 'Edit note' : '+ Note'}</span>
+                          </button>
+                        )}
                       </div>
                       {w.customNote && !isEditingThisNote && (
                         <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 border border-amber-200/80 text-[11px] text-amber-900">
                           <StickyNote className="w-2.5 h-2.5 text-amber-600 shrink-0" />
                           <span>{w.customNote}</span>
-                          <button
-                            type="button"
-                            onClick={() => clearItemNote(w)}
-                            className="text-amber-700 hover:text-rose-600 ml-1 cursor-pointer"
-                            title="Remove note"
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
+                          {!isViewOnly && (
+                            <button
+                              type="button"
+                              onClick={() => clearItemNote(w)}
+                              className="text-amber-700 hover:text-rose-600 ml-1 cursor-pointer"
+                              title="Remove note"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          )}
                         </div>
                       )}
-                      {isEditingThisNote && (
+                      {!isViewOnly && isEditingThisNote && (
                         <div className="mt-1.5 flex items-center gap-1.5 max-w-xs">
                           <input
                             type="text"
@@ -582,18 +602,18 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 <th className="py-3 px-3">Category</th>
                 <th className="py-3 px-3">Notes / Remarks</th>
                 <th className="py-3 px-3 text-right tabular-nums">Count</th>
-                <th className="py-3 px-3 text-right">Action</th>
+                {!isViewOnly && <th className="py-3 px-3 text-right">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visibleWorks.map((w) => {
-                const isEditingThisNote = inlineNoteId === w.id;
+                const isEditingThisNote = !isViewOnly && inlineNoteId === w.id;
                 return (
                   <tr key={w.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-3 font-bold text-slate-900">{w.activity}</td>
                     <td className="py-3 px-3 text-slate-500">{w.category}</td>
                     <td className="py-3 px-3 text-slate-600 max-w-xs">
-                      {isEditingThisNote ? (
+                      {!isViewOnly && isEditingThisNote ? (
                         <div className="flex items-center gap-1.5">
                           <input
                             type="text"
@@ -632,13 +652,15 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                           )}
                           <div className="flex items-center gap-2">
                             <span className="truncate text-slate-500">{w.notes || '—'}</span>
-                            <button
-                              type="button"
-                              onClick={() => openInlineNote(w)}
-                              className="text-[10px] font-semibold text-[#E11D74] hover:underline shrink-0 cursor-pointer"
-                            >
-                              {w.customNote ? 'Edit note' : '+ Note'}
-                            </button>
+                            {!isViewOnly && (
+                              <button
+                                type="button"
+                                onClick={() => openInlineNote(w)}
+                                className="text-[10px] font-semibold text-[#E11D74] hover:underline shrink-0 cursor-pointer"
+                              >
+                                {w.customNote ? 'Edit note' : '+ Note'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
@@ -646,29 +668,31 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     <td className="py-3 px-3 text-right font-extrabold text-slate-900 text-sm tabular-nums">
                       {w.count}
                     </td>
-                    <td className="py-3 px-3 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => {
-                          setEditingItem(w);
-                          setEditCount(w.count);
-                          setEditNotes(w.notes || '');
-                          setEditCustomNote(w.customNote || '');
-                        }}
-                        className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                        title="Edit count & notes"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      {onDeleteWorkItem && (
+                    {!isViewOnly && (
+                      <td className="py-3 px-3 text-right whitespace-nowrap">
                         <button
-                          onClick={() => onDeleteWorkItem(w.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 transition-colors ml-1 cursor-pointer"
-                          title="Delete item"
+                          onClick={() => {
+                            setEditingItem(w);
+                            setEditCount(w.count);
+                            setEditNotes(w.notes || '');
+                            setEditCustomNote(w.customNote || '');
+                          }}
+                          className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                          title="Edit count & notes"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                    </td>
+                        {onDeleteWorkItem && (
+                          <button
+                            onClick={() => onDeleteWorkItem(w.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors ml-1 cursor-pointer"
+                            title="Delete item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -685,13 +709,15 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
           <span className="text-slate-700 font-semibold">{topItem ? topItem.activity : 'None'}</span>
         </span>
 
-        <button
-          onClick={() => setIsAddingOpen(true)}
-          className="text-[#E11D74] hover:text-[#c91464] font-bold text-xs inline-flex items-center gap-1 transition-colors cursor-pointer self-start sm:self-auto"
-        >
-          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-          <span>Add activity</span>
-        </button>
+        {!isViewOnly && (
+          <button
+            onClick={() => setIsAddingOpen(true)}
+            className="text-[#E11D74] hover:text-[#c91464] font-bold text-xs inline-flex items-center gap-1 transition-colors cursor-pointer self-start sm:self-auto"
+          >
+            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Add activity</span>
+          </button>
+        )}
       </div>
 
       {/* Add Activity Modal */}

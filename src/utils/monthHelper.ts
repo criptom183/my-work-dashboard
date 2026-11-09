@@ -434,7 +434,8 @@ export function getWorksForSelectedMonth(
         monthCount = w.count;
       }
 
-      let resolvedCustomNote = w.customNote;
+      // Month-specific note resolution: notes must only appear in the specific month they were created for
+      let resolvedCustomNote: string | undefined = undefined;
       if (w.monthlyNotes) {
         for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
           if (isSameMonth(m, selectedMonth)) {
@@ -442,6 +443,8 @@ export function getWorksForSelectedMonth(
             break;
           }
         }
+      } else if (w.month && isSameMonth(w.month, selectedMonth)) {
+        resolvedCustomNote = w.customNote;
       }
 
       result.push({

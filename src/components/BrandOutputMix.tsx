@@ -8,6 +8,7 @@ interface BrandOutputMixProps {
   outputMixNote?: string;
   onUpdateOutputMixNote?: (note: string) => void;
   onUpdateWorkItem?: (id: string, updates: Partial<WorkItem>) => void;
+  isViewOnly?: boolean;
 }
 
 const PALETTE = [
@@ -27,6 +28,7 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
   outputMixNote = '',
   onUpdateOutputMixNote,
   onUpdateWorkItem,
+  isViewOnly = false,
 }) => {
   const [isEditingMixNote, setIsEditingMixNote] = useState(false);
   const [mixNoteDraft, setMixNoteDraft] = useState(outputMixNote);
@@ -51,6 +53,7 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
   };
 
   const openInlineNote = (item: WorkItem) => {
+    if (isViewOnly) return;
     setInlineNoteId(item.id);
     setInlineNoteText(item.customNote || '');
   };
@@ -66,11 +69,11 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-2xs mb-6">
+    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-2xs mb-6 overflow-hidden w-full">
       <div className="mb-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-base font-bold text-slate-900">Output mix</h3>
-          {onUpdateOutputMixNote && !isEditingMixNote && (
+          {!isViewOnly && onUpdateOutputMixNote && !isEditingMixNote && (
             <button
               type="button"
               onClick={() => {
@@ -91,7 +94,7 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
       </div>
 
       {/* Section Note Banner / Editor */}
-      {isEditingMixNote ? (
+      {!isViewOnly && isEditingMixNote ? (
         <div className="mb-4 p-3 rounded-xl bg-amber-50/60 border border-amber-200/90">
           <div className="flex flex-col gap-2">
             <input
@@ -141,9 +144,9 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
         <div className="mb-4 px-3 py-2 rounded-xl bg-amber-50/70 border border-amber-200/80 flex items-start justify-between gap-2">
           <div className="flex items-start gap-1.5 text-xs text-amber-950 min-w-0">
             <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-            <span className="font-medium break-words">{outputMixNote}</span>
+            <span className="font-medium break-words leading-relaxed">{outputMixNote}</span>
           </div>
-          {onUpdateOutputMixNote && (
+          {!isViewOnly && onUpdateOutputMixNote && (
             <div className="flex items-center gap-0.5 shrink-0">
               <button
                 type="button"
@@ -169,9 +172,10 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
         </div>
       ) : null}
 
-      <div className="flex flex-col sm:flex-row items-center gap-6">
+      {/* Main Visual: Donut chart and Legend list with robust responsive containment */}
+      <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center sm:items-start lg:items-center xl:items-start gap-4 sm:gap-6 min-w-0">
         {/* Donut Chart SVG */}
-        <div className="relative w-36 h-36 shrink-0 flex items-center justify-center">
+        <div className="relative w-36 h-36 shrink-0 flex items-center justify-center mx-auto sm:mx-0 lg:mx-auto xl:mx-0">
           <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
             {totalCount === 0 ? (
               <circle
@@ -217,23 +221,25 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
           </div>
         </div>
 
-        {/* Legend / Work List */}
-        <div className="flex-1 w-full space-y-2">
+        {/* Legend / Work List with max-height and custom scroll so it never pushes out of container */}
+        <div className="flex-1 w-full min-w-0 max-h-[360px] overflow-y-auto pr-1 space-y-2">
           {visibleWorks.map((item, idx) => {
             const pct = totalCount > 0 ? ((item.count / totalCount) * 100).toFixed(1) : '0';
             const color = PALETTE[idx % PALETTE.length];
-            const isEditingThis = inlineNoteId === item.id;
+            const isEditingThis = !isViewOnly && inlineNoteId === item.id;
 
             return (
-              <div key={item.id} className="group">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 min-w-0 pr-2">
+              <div key={item.id} className="group min-w-0">
+                <div className="flex items-center justify-between text-xs gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ backgroundColor: color }}
                     />
-                    <span className="font-medium text-slate-700 truncate">{item.activity}</span>
-                    {onUpdateWorkItem && (
+                    <span className="font-medium text-slate-700 truncate" title={item.activity}>
+                      {item.activity}
+                    </span>
+                    {!isViewOnly && onUpdateWorkItem && (
                       <button
                         type="button"
                         onClick={() => openInlineNote(item)}
@@ -248,23 +254,27 @@ export const BrandOutputMix: React.FC<BrandOutputMixProps> = ({
                       </button>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 shrink-0 tabular-nums">
-                    <span className="font-bold text-slate-900">{item.count}</span>
-                    <span className="text-slate-400 font-medium w-10 text-right">{pct}%</span>
+                  <div className="flex items-center gap-2.5 shrink-0 tabular-nums">
+                    <span className="font-bold text-slate-900 min-w-[18px] text-right">{item.count}</span>
+                    <span className="text-slate-400 font-medium min-w-[38px] text-right">{pct}%</span>
                   </div>
                 </div>
 
                 {item.customNote && !isEditingThis && (
                   <div
-                    onClick={() => openInlineNote(item)}
-                    className="ml-4 mt-0.5 text-[11px] text-amber-800 bg-amber-50/70 border border-amber-200/60 rounded px-2 py-0.5 flex items-center justify-between gap-1 cursor-pointer hover:bg-amber-100/60 transition-colors"
+                    onClick={() => {
+                      if (!isViewOnly) openInlineNote(item);
+                    }}
+                    className={`ml-4 mt-0.5 text-[11px] text-amber-800 bg-amber-50/70 border border-amber-200/60 rounded px-2 py-0.5 flex items-center justify-between gap-1 transition-colors ${
+                      !isViewOnly ? 'cursor-pointer hover:bg-amber-100/60' : 'cursor-default'
+                    }`}
                   >
                     <span className="truncate">{item.customNote}</span>
-                    <Edit2 className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                    {!isViewOnly && <Edit2 className="w-2.5 h-2.5 text-amber-600 shrink-0" />}
                   </div>
                 )}
 
-                {isEditingThis && (
+                {!isViewOnly && isEditingThis && (
                   <div className="ml-4 mt-1 flex items-center gap-1">
                     <input
                       type="text"

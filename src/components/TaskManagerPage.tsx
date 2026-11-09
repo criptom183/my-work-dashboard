@@ -68,6 +68,9 @@ interface TaskManagerPageProps {
   onSheetSourceUrlChange?: (newUrl: string) => void;
   tasksListNote?: string;
   onUpdateTasksListNote?: (note: string) => void;
+  isViewOnly?: boolean;
+  onUnlockEditor?: () => void;
+  onShareViewLink?: () => void;
 }
 
 const STATUS_COLUMNS: {
@@ -130,6 +133,9 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   onSheetSourceUrlChange,
   tasksListNote = '',
   onUpdateTasksListNote,
+  isViewOnly = false,
+  onUnlockEditor,
+  onShareViewLink,
 }) => {
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [searchQuery, setSearchQuery] = useState('');
@@ -585,6 +591,45 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   return (
     <div className="min-h-screen bg-[#F4F7F6] text-slate-800 antialiased font-sans pb-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {/* View-Only Notice Banner */}
+        {isViewOnly && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200/90 text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800">
+                <CheckCircle2 className="w-4 h-4" />
+              </span>
+              <div>
+                <p className="text-xs font-bold text-amber-950">
+                  Viewing in Read-Only Mode
+                </p>
+                <p className="text-[11px] text-amber-800">
+                  Tasks, subtasks, notes, and statuses cannot be modified by viewers.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {onShareViewLink && (
+                <button
+                  type="button"
+                  onClick={onShareViewLink}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 hover:bg-amber-100/50 text-amber-900 text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
+                >
+                  Share View Link
+                </button>
+              )}
+              {onUnlockEditor && (
+                <button
+                  type="button"
+                  onClick={onUnlockEditor}
+                  className="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
+                >
+                  Unlock Editor
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Navigation Bar & Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200 mb-6">
           <div className="flex items-start sm:items-center gap-3">
@@ -605,12 +650,17 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                 <span className="text-xs text-slate-400 font-medium">
                   VZone Marketing Operations
                 </span>
+                {isViewOnly && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+                    Read-Only
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-0.5">
                   Current Tasks & Action Items
                 </h1>
-                {onUpdateTasksListNote && !isEditingNote && (
+                {!isViewOnly && onUpdateTasksListNote && !isEditingNote && (
                   <button
                     type="button"
                     onClick={() => {
@@ -638,18 +688,20 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
               <span className="hidden sm:inline">Export CSV</span>
             </button>
 
-            <button
-              onClick={() => handleOpenAddModal('pending')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs sm:text-sm font-semibold shadow-xs transition-all cursor-pointer active:scale-98"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add New Task</span>
-            </button>
+            {!isViewOnly && (
+              <button
+                onClick={() => handleOpenAddModal('pending')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs sm:text-sm font-semibold shadow-xs transition-all cursor-pointer active:scale-98"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add New Task</span>
+              </button>
+            )}
           </div>
         </div>
 
         {/* Task List Note Banner / Editor */}
-        {isEditingNote ? (
+        {!isViewOnly && isEditingNote ? (
           <div className="mb-5 p-3.5 rounded-xl bg-amber-50/70 border border-amber-300">
             <div className="flex flex-col gap-2">
               <label className="text-xs font-bold text-amber-900">Task List Note</label>
@@ -708,7 +760,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
               <StickyNote className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <span className="font-medium break-words leading-relaxed">{tasksListNote}</span>
             </div>
-            {onUpdateTasksListNote && (
+            {!isViewOnly && onUpdateTasksListNote && (
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
@@ -1152,8 +1204,10 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
 
                             {/* Task Title */}
                             <h4
-                              onClick={() => handleOpenEditModal(task)}
-                              className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-teal-700 cursor-pointer transition-colors leading-snug"
+                              onClick={!isViewOnly ? () => handleOpenEditModal(task) : undefined}
+                              className={`text-xs sm:text-sm font-bold text-slate-900 leading-snug transition-colors ${
+                                !isViewOnly ? 'group-hover:text-teal-700 cursor-pointer' : 'cursor-default'
+                              }`}
                             >
                               {task.title}
                             </h4>
@@ -1217,8 +1271,10 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                                       {task.subtasks?.map((st) => (
                                         <div
                                           key={st.id}
-                                          onClick={() => handleToggleSubtask(task.id, st.id)}
-                                          className="flex items-center gap-1.5 text-[11px] text-slate-700 hover:text-slate-900 cursor-pointer select-none py-0.5"
+                                          onClick={!isViewOnly ? () => handleToggleSubtask(task.id, st.id) : undefined}
+                                          className={`flex items-center gap-1.5 text-[11px] text-slate-700 select-none py-0.5 ${
+                                            !isViewOnly ? 'hover:text-slate-900 cursor-pointer' : 'cursor-default'
+                                          }`}
                                         >
                                           {st.completed ? (
                                             <CheckSquare className="w-3.5 h-3.5 text-teal-600 shrink-0" />
@@ -1253,43 +1309,51 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                             {/* Quick Status Shift Buttons */}
                             <div className="flex items-center justify-between pt-1 border-t border-slate-50">
                               <div className="flex items-center gap-1">
-                                <select
-                                  value={task.status}
-                                  onChange={(e) =>
-                                    handleChangeStatus(task.id, e.target.value as TaskStatus)
-                                  }
-                                  className="text-[10px] font-medium bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                                >
-                                  <option value="pending">Pending</option>
-                                  <option value="in-progress">In Progress</option>
-                                  <option value="in-review">In Review</option>
-                                  <option value="completed">Completed</option>
-                                </select>
+                                {isViewOnly ? (
+                                  <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                                    {task.status}
+                                  </span>
+                                ) : (
+                                  <select
+                                    value={task.status}
+                                    onChange={(e) =>
+                                      handleChangeStatus(task.id, e.target.value as TaskStatus)
+                                    }
+                                    className="text-[10px] font-medium bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                  >
+                                    <option value="pending">Pending</option>
+                                    <option value="in-progress">In Progress</option>
+                                    <option value="in-review">In Review</option>
+                                    <option value="completed">Completed</option>
+                                  </select>
+                                )}
                               </div>
 
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => handleDuplicateTask(task)}
-                                  className="p-1 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                                  title="Duplicate Task"
-                                >
-                                  <Copy className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => handleOpenEditModal(task)}
-                                  className="p-1 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                                  title="Edit Task"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteTask(task.id)}
-                                  className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
-                                  title="Delete Task"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
+                              {!isViewOnly && (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleDuplicateTask(task)}
+                                    className="p-1 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                                    title="Duplicate Task"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenEditModal(task)}
+                                    className="p-1 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                                    title="Edit Task"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTask(task.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                                    title="Delete Task"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1340,13 +1404,17 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                       <div className="flex items-start gap-3 flex-1">
                         <button
                           onClick={() =>
+                            !isViewOnly &&
                             handleChangeStatus(
                               task.id,
                               isCompleted ? 'in-progress' : 'completed'
                             )
                           }
-                          className="mt-0.5 text-slate-400 hover:text-teal-600 transition-colors shrink-0"
-                          title={isCompleted ? 'Mark incomplete' : 'Mark completed'}
+                          className={`mt-0.5 text-slate-400 transition-colors shrink-0 ${
+                            !isViewOnly ? 'hover:text-teal-600 cursor-pointer' : 'cursor-default opacity-80'
+                          }`}
+                          title={!isViewOnly ? (isCompleted ? 'Mark incomplete' : 'Mark completed') : undefined}
+                          disabled={isViewOnly}
                         >
                           {isCompleted ? (
                             <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-50" />
@@ -1359,11 +1427,13 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             {/* Title */}
                             <span
-                              onClick={() => handleOpenEditModal(task)}
-                              className={`text-sm font-bold cursor-pointer transition-colors ${
+                              onClick={!isViewOnly ? () => handleOpenEditModal(task) : undefined}
+                              className={`text-sm font-bold transition-colors ${
+                                !isViewOnly ? 'cursor-pointer hover:text-teal-700' : 'cursor-default'
+                              } ${
                                 isCompleted
                                   ? 'line-through text-slate-400'
-                                  : 'text-slate-900 hover:text-teal-700'
+                                  : 'text-slate-900'
                               }`}
                             >
                               {task.title}
@@ -1465,8 +1535,10 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                               {task.subtasks.map((st) => (
                                 <div
                                   key={st.id}
-                                  onClick={() => handleToggleSubtask(task.id, st.id)}
-                                  className="flex items-center gap-2 text-xs text-slate-700 hover:text-slate-900 cursor-pointer select-none"
+                                  onClick={!isViewOnly ? () => handleToggleSubtask(task.id, st.id) : undefined}
+                                  className={`flex items-center gap-2 text-xs text-slate-700 select-none ${
+                                    !isViewOnly ? 'hover:text-slate-900 cursor-pointer' : 'cursor-default'
+                                  }`}
                                 >
                                   {st.completed ? (
                                     <CheckSquare className="w-4 h-4 text-teal-600 shrink-0" />
@@ -1490,40 +1562,48 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
 
                       {/* Right action buttons */}
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <select
-                          value={task.status}
-                          onChange={(e) =>
-                            handleChangeStatus(task.id, e.target.value as TaskStatus)
-                          }
-                          className="text-xs font-medium bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="in-progress">In Progress</option>
-                          <option value="in-review">In Review</option>
-                          <option value="completed">Completed</option>
-                        </select>
+                        {isViewOnly ? (
+                          <span className="text-xs font-semibold uppercase px-2 py-1 rounded bg-slate-100 text-slate-600">
+                            {task.status}
+                          </span>
+                        ) : (
+                          <>
+                            <select
+                              value={task.status}
+                              onChange={(e) =>
+                                handleChangeStatus(task.id, e.target.value as TaskStatus)
+                              }
+                              className="text-xs font-medium bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="in-progress">In Progress</option>
+                              <option value="in-review">In Review</option>
+                              <option value="completed">Completed</option>
+                            </select>
 
-                        <button
-                          onClick={() => handleDuplicateTask(task)}
-                          className="p-1.5 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                          title="Duplicate Task"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleOpenEditModal(task)}
-                          className="p-1.5 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                          title="Edit Task"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Delete Task"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                            <button
+                              onClick={() => handleDuplicateTask(task)}
+                              className="p-1.5 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="Duplicate Task"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditModal(task)}
+                              className="p-1.5 text-slate-400 hover:text-teal-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="Edit Task"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="Delete Task"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

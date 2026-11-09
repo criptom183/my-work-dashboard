@@ -16,7 +16,7 @@ import { BrandTasksWidget } from './components/BrandTasksWidget';
 import { UploadSheetModal } from './components/UploadSheetModal';
 import { TaskManagerPage } from './components/TaskManagerPage';
 import { exportToCsv } from './utils/sheetParser';
-import { getWorksForSelectedMonth } from './utils/monthHelper';
+import { getWorksForSelectedMonth, isSameMonth } from './utils/monthHelper';
 import {
   saveDashboardToStorage,
   loadDashboardFromStorage,
@@ -46,6 +46,10 @@ import {
   X,
   AlertTriangle,
   CheckCircle2,
+  Lock,
+  Unlock,
+  KeyRound,
+  ShieldAlert,
 } from 'lucide-react';
 
 export default function App() {
@@ -69,6 +73,47 @@ export default function App() {
       ? 'tasks'
       : 'dashboard';
   });
+
+  // View-Only Mode determination:
+  // Default to true for incognito or new visitors from shared link!
+  const [isViewOnly, setIsViewOnly] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('edit') === '1' || params.get('mode') === 'edit' || params.get('admin') === '1') {
+      try {
+        localStorage.setItem('vzone_role', 'editor');
+      } catch {}
+      return false;
+    }
+    if (params.get('view') === '1' || params.get('readonly') === '1' || params.get('mode') === 'view') {
+      return true;
+    }
+    try {
+      const stored = localStorage.getItem('vzone_role');
+      if (stored === 'editor') return false;
+      // If the owner has saved dashboard data before on this primary system, maintain editor
+      const savedDash = localStorage.getItem('vzone_marketing_dashboard_v2');
+      if (savedDash) {
+        localStorage.setItem('vzone_role', 'editor');
+        return false;
+      }
+    } catch {}
+    // Anyone else defaults to View-Only Mode
+    return true;
+  });
+
+  const [isEditorAuthorized, setIsEditorAuthorized] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('vzone_role') === 'editor';
+    } catch {
+      return false;
+    }
+  });
+
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [unlockPasscode, setUnlockPasscode] = useState('');
+  const [unlockError, setUnlockError] = useState<string | null>(null);
 
   // Tasks state backed by localStorage
   const [tasks, setTasks] = useState<TaskItem[]>(() => loadTasksFromStorage());
@@ -109,12 +154,6 @@ export default function App() {
     type: 'success' | 'info' | 'error';
   } | null>(null);
 
-  const dataRef = useRef(data);
-  dataRef.current = data;
-
-  const syncSettingsRef = useRef(syncSettings);
-  syncSettingsRef.current = syncSettings;
-
   // Show temporary toast message
   const showToast = useCallback((text: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -122,6 +161,54 @@ export default function App() {
       setToastMessage(null);
     }, 4500);
   }, []);
+
+  const handleUnlockEditor = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = unlockPasscode.trim().toLowerCase();
+    // Default passcodes: 'vzone' or 'admin' or 'marketing'
+    if (clean === 'vzone' || clean === 'admin' || clean === 'marketing') {
+      try {
+        localStorage.setItem('vzone_role', 'editor');
+      } catch {}
+      setIsViewOnly(false);
+      setIsEditorAuthorized(true);
+      setIsUnlockModalOpen(false);
+      setUnlockPasscode('');
+      setUnlockError(null);
+      showToast('Editor mode unlocked! You can now add/edit notes and deliverables.');
+    } else {
+      setUnlockError('Incorrect passcode. Please try again (passcode: vzone).');
+    }
+  };
+
+  const handleShareViewLink = () => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', '1');
+      url.searchParams.delete('edit');
+      url.searchParams.delete('admin');
+      const shareUrl = url.toString();
+      navigator.clipboard.writeText(shareUrl);
+      showToast('View-only link copied! Anyone opening this will see read-only mode.');
+    } catch {
+      showToast('View-only link copied to clipboard!');
+    }
+  };
+
+  const handleToggleViewPreview = () => {
+    setIsViewOnly((prev) => {
+      const next = !prev;
+      showToast(next ? 'Previewing as Read-Only Viewer' : 'Returned to Editor Mode', 'info');
+      return next;
+    });
+  };
+
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  const syncSettingsRef = useRef(syncSettings);
+  syncSettingsRef.current = syncSettings;
+
 
   const handleUpdateSyncSettings = useCallback((newSettings: SyncSettings) => {
     setSyncSettings(newSettings);
@@ -376,6 +463,7 @@ export default function App() {
   };
 
   const handleUpdateWorkItem = (id: string, updates: Partial<WorkItem>) => {
+    if (isViewOnly) return;
     setData((prev) => {
       const updatedWorks = prev.worksCompleted.map((w) => {
         if (w.id === id || w.id.replace(/^all-/, '') === id.replace(/^all-/, '')) {
@@ -388,17 +476,28 @@ export default function App() {
               }
             : undefined;
 
-          const updatedMonthlyNotes =
+          // Strictly scope deliverable custom notes to selectedMonth
+          const updatedMonthlyNotes = w.monthlyNotes ? { ...w.monthlyNotes } : {};
+          if (updates.customNote !== undefined) {
+            if (updates.customNote) {
+              updatedMonthlyNotes[selectedMonth] = updates.customNote;
+            } else {
+              delete updatedMonthlyNotes[selectedMonth];
+            }
+          }
+
+          // Root customNote only reflects when selectedMonth matches the item's primary month
+          const rootCustomNote =
             updates.customNote !== undefined
-              ? {
-                  ...(w.monthlyNotes || {}),
-                  [selectedMonth]: updates.customNote,
-                }
-              : w.monthlyNotes;
+              ? (w.month && isSameMonth(w.month, selectedMonth)) || selectedMonth === 'all'
+                ? updates.customNote || undefined
+                : w.customNote
+              : w.customNote;
 
           return {
             ...w,
             ...updates,
+            customNote: rootCustomNote,
             monthlyBreakdown: updatedBreakdown,
             monthlyNotes: updatedMonthlyNotes,
           };
@@ -415,6 +514,7 @@ export default function App() {
   };
 
   const handleUpdateWorkListNote = (listKey: string, noteText: string) => {
+    if (isViewOnly) return;
     setData((prev) => {
       const updatedNotes = {
         ...(prev.workListNotes || {}),
@@ -450,6 +550,7 @@ export default function App() {
     category: string,
     notes?: string
   ) => {
+    if (isViewOnly) return;
     const newId = `work-${Date.now()}`;
     const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
     const newWork: WorkItem = {
@@ -480,6 +581,7 @@ export default function App() {
   };
 
   const handleDeleteWorkItem = (id: string) => {
+    if (isViewOnly) return;
     setData((prev) => {
       const updatedDashboard = {
         ...prev,
@@ -633,6 +735,7 @@ export default function App() {
           onOpenSheetModal={() => setIsSheetModalOpen(true)}
           totalDeliverablesCount={totalDeliverablesCount}
           activeTasksCount={activeTasks.length}
+          isViewOnly={isViewOnly}
         />
 
         <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto">
@@ -651,6 +754,9 @@ export default function App() {
               ''
             }
             onUpdateTasksListNote={(note) => handleUpdateWorkListNote('tasks', note)}
+            isViewOnly={isViewOnly}
+            onUnlockEditor={() => setIsUnlockModalOpen(true)}
+            onShareViewLink={handleShareViewLink}
           />
         </main>
 
@@ -662,6 +768,78 @@ export default function App() {
           syncSettings={syncSettings}
           onUpdateSyncSettings={handleUpdateSyncSettings}
         />
+
+        {/* Passcode Unlock Editor Modal */}
+        {isUnlockModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 shadow-2xl p-6 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-pink-50 text-[#E11D74] flex items-center justify-center">
+                    <KeyRound className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900">Unlock Editor Mode</h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsUnlockModalOpen(false);
+                    setUnlockPasscode('');
+                    setUnlockError(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                Enter passcode to unlock editor mode and manage deliverables, tasks, and notes (default: <strong className="text-slate-800">vzone</strong>).
+              </p>
+
+              <form onSubmit={handleUnlockEditor} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Passcode
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Enter passcode (e.g. vzone)"
+                    value={unlockPasscode}
+                    onChange={(e) => {
+                      setUnlockPasscode(e.target.value);
+                      setUnlockError(null);
+                    }}
+                    autoFocus
+                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E11D74]"
+                  />
+                  {unlockError && (
+                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{unlockError}</p>
+                  )}
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUnlockModalOpen(false);
+                      setUnlockPasscode('');
+                      setUnlockError(null);
+                    }}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[#E11D74] hover:bg-[#c91464] text-white shadow-xs transition-colors cursor-pointer"
+                  >
+                    Unlock
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -685,6 +863,7 @@ export default function App() {
         onOpenSheetModal={() => setIsSheetModalOpen(true)}
         totalDeliverablesCount={totalDeliverablesCount}
         activeTasksCount={activeTasks.length}
+        isViewOnly={isViewOnly}
       />
 
       {/* MAIN CONTENT AREA */}
@@ -718,6 +897,11 @@ export default function App() {
             onSearchChange={setSearchQuery}
             onExportCsv={handleExportCsv}
             onOpenTaskManager={navigateToTasks}
+            isViewOnly={isViewOnly}
+            onUnlockEditor={() => setIsUnlockModalOpen(true)}
+            onShareViewLink={handleShareViewLink}
+            onToggleViewPreview={handleToggleViewPreview}
+            isEditorAuthorized={isEditorAuthorized}
           />
 
           {/* Header Row: Title & Month Segmented Switcher */}
@@ -763,8 +947,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Connect your Google Sheet for live sync Banner */}
-          {!isBannerDismissed && (
+          {/* Connect your Google Sheet for live sync Banner (Only for editor) */}
+          {!isViewOnly && !isBannerDismissed && (
             <div className="mb-6 p-4 rounded-2xl bg-white border border-rose-200/90 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start sm:items-center gap-3.5">
                 <div className="w-10 h-10 rounded-xl bg-pink-50 text-[#E11D74] flex items-center justify-center shrink-0">
@@ -791,7 +975,7 @@ export default function App() {
 
                 <button
                   onClick={() => setIsBannerDismissed(true)}
-                  className="text-slate-400 hover:text-slate-600 p-1"
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
                   title="Dismiss banner"
                 >
                   <X className="w-4 h-4" />
@@ -826,6 +1010,7 @@ export default function App() {
                 onAddWorkItem={handleAddWorkItem}
                 onUpdateWorkItem={handleUpdateWorkItem}
                 onDeleteWorkItem={handleDeleteWorkItem}
+                isViewOnly={isViewOnly}
               />
             </div>
 
@@ -839,6 +1024,7 @@ export default function App() {
                   handleUpdateWorkListNote(`mix_${selectedMonth}`, note)
                 }
                 onUpdateWorkItem={handleUpdateWorkItem}
+                isViewOnly={isViewOnly}
               />
 
               <BrandTasksWidget
@@ -851,6 +1037,7 @@ export default function App() {
                   ''
                 }
                 onUpdateTasksListNote={(note) => handleUpdateWorkListNote('tasks', note)}
+                isViewOnly={isViewOnly}
               />
             </div>
           </div>
@@ -872,6 +1059,78 @@ export default function App() {
         syncSettings={syncSettings}
         onUpdateSyncSettings={handleUpdateSyncSettings}
       />
+
+      {/* Passcode Unlock Editor Modal */}
+      {isUnlockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 shadow-2xl p-6 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-pink-50 text-[#E11D74] flex items-center justify-center">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900">Unlock Editor Mode</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setIsUnlockModalOpen(false);
+                  setUnlockPasscode('');
+                  setUnlockError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              Enter passcode to unlock editor privileges and edit deliverables, tasks, or notes (default: <strong className="text-slate-800">vzone</strong>).
+            </p>
+
+            <form onSubmit={handleUnlockEditor} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Passcode
+                </label>
+                <input
+                  type="password"
+                  placeholder="Enter passcode (e.g. vzone)"
+                  value={unlockPasscode}
+                  onChange={(e) => {
+                    setUnlockPasscode(e.target.value);
+                    setUnlockError(null);
+                  }}
+                  autoFocus
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E11D74]"
+                />
+                {unlockError && (
+                  <p className="text-[11px] text-rose-600 mt-1 font-medium">{unlockError}</p>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsUnlockModalOpen(false);
+                    setUnlockPasscode('');
+                    setUnlockError(null);
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[#E11D74] hover:bg-[#c91464] text-white shadow-xs transition-colors cursor-pointer"
+                >
+                  Unlock
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

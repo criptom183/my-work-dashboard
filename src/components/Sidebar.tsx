@@ -26,6 +26,7 @@ interface SidebarProps {
   onOpenSheetModal: () => void;
   totalDeliverablesCount: number;
   activeTasksCount: number;
+  isViewOnly?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -41,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSheetModal,
   totalDeliverablesCount,
   activeTasksCount,
+  isViewOnly = false,
 }) => {
   return (
     <aside className="w-64 bg-[#1D1B48] text-white flex flex-col justify-between shrink-0 min-h-screen border-r border-[#27245A] select-none">
@@ -191,22 +193,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Export CSV</span>
             </button>
 
-            <button
-              onClick={onSaveToMemory}
-              className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-medium text-[#9D9BC2] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-            >
-              <Save className="w-4 h-4 shrink-0" />
-              <span>Save to memory</span>
-            </button>
+            {!isViewOnly && (
+              <>
+                <button
+                  onClick={onSaveToMemory}
+                  className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-medium text-[#9D9BC2] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  <Save className="w-4 h-4 shrink-0" />
+                  <span>Save to memory</span>
+                </button>
 
-            <button
-              onClick={onResetData}
-              title="Restore full 18-deliverable template with Sep & Oct data"
-              className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-medium text-[#9D9BC2] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4 shrink-0" />
-              <span>Reset to template</span>
-            </button>
+                <button
+                  onClick={onResetData}
+                  title="Restore full 18-deliverable template with Sep & Oct data"
+                  className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-medium text-[#9D9BC2] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  <RotateCcw className="w-4 h-4 shrink-0" />
+                  <span>Reset to template</span>
+                </button>
+              </>
+            )}
           </nav>
         </div>
       </div>
@@ -238,13 +244,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onOpenSheetModal}
-            className="w-full py-2.5 px-3 rounded-xl bg-[#FFC83B] hover:bg-[#ffcf55] text-[#1D1B48] font-bold text-xs shadow-md shadow-amber-500/15 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
-          >
-            <Link2 className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>Link Sheet / Upload</span>
-          </button>
+          {!isViewOnly ? (
+            <button
+              onClick={onOpenSheetModal}
+              className="w-full py-2.5 px-3 rounded-xl bg-[#FFC83B] hover:bg-[#ffcf55] text-[#1D1B48] font-bold text-xs shadow-md shadow-amber-500/15 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
+            >
+              <Link2 className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Link Sheet / Upload</span>
+            </button>
+          ) : (
+            <div className="w-full py-2 px-3 rounded-xl bg-[#18163E]/60 text-slate-400 font-medium text-[11px] text-center border border-white/5">
+              Read-Only View
+            </div>
+          )}
         </div>
       </div>
     </aside>

@@ -8,6 +8,7 @@ interface BrandTasksWidgetProps {
   onAddTask: () => void;
   tasksListNote?: string;
   onUpdateTasksListNote?: (note: string) => void;
+  isViewOnly?: boolean;
 }
 
 export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
@@ -16,6 +17,7 @@ export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
   onAddTask,
   tasksListNote = '',
   onUpdateTasksListNote,
+  isViewOnly = false,
 }) => {
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState(tasksListNote);
@@ -53,7 +55,7 @@ export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <h3 className="text-base font-bold text-slate-900">Tasks & action items</h3>
-          {onUpdateTasksListNote && !isEditingNote && (
+          {!isViewOnly && onUpdateTasksListNote && !isEditingNote && (
             <button
               type="button"
               onClick={() => {
@@ -132,9 +134,9 @@ export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
         <div className="mb-4 px-3 py-2 rounded-xl bg-amber-50/70 border border-amber-200/80 flex items-start justify-between gap-2">
           <div className="flex items-start gap-1.5 text-xs text-amber-950 min-w-0">
             <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-            <span className="font-medium break-words">{tasksListNote}</span>
+            <span className="font-medium break-words leading-relaxed">{tasksListNote}</span>
           </div>
-          {onUpdateTasksListNote && (
+          {!isViewOnly && onUpdateTasksListNote && (
             <div className="flex items-center gap-0.5 shrink-0">
               <button
                 type="button"
@@ -193,14 +195,16 @@ export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
         </div>
       </div>
 
-      {/* Bottom Button: + Add a task */}
-      <button
-        onClick={onAddTask}
-        className="w-full py-2.5 px-4 rounded-xl border border-dashed border-slate-300 hover:border-[#E11D74] hover:text-[#E11D74] text-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-slate-50/50 hover:bg-pink-50/20"
-      >
-        <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-        <span>Add a task</span>
-      </button>
+      {/* Bottom Button: + Add a task (Only in Editor Mode) */}
+      {!isViewOnly && (
+        <button
+          onClick={onAddTask}
+          className="w-full py-2.5 px-4 rounded-xl border border-dashed border-slate-300 hover:border-[#E11D74] hover:text-[#E11D74] text-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-slate-50/50 hover:bg-pink-50/20"
+        >
+          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+          <span>Add a task</span>
+        </button>
+      )}
     </div>
   );
 };
