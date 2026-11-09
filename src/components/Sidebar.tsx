@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { DashboardData } from '../types';
+import vzoneLogo from '../assets/vzone-logo.png';
 
 interface SidebarProps {
   currentPage: 'dashboard' | 'tasks';
@@ -49,16 +50,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top: Logo & Nav items */}
       <div className="p-5">
         {/* Brand Logo */}
-        <div className="flex items-center gap-3 mb-8">
-          {/* VZone Geometric Ribbon Logo Icon */}
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-rose-500 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
-            <svg
-              viewBox="0 0 24 24"
-              className="w-6 h-6 text-white drop-shadow-xs"
-              fill="currentColor"
-            >
-              <path d="M4 4h4.5l3.5 8 3.5-8H20l-6 13.5a3 3 0 0 1-5.5 0L4 4z" />
-            </svg>
+        <div className="flex items-center gap-3 mb-8 cursor-pointer" onClick={() => onNavigate('dashboard')}>
+          {/* VZone Official Geometric Ribbon Logo */}
+          <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-1 shadow-md shrink-0">
+            <img
+              src={vzoneLogo}
+              alt="VZone International"
+              className="w-full h-full object-contain filter drop-shadow-sm"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = './assets/aistudio/IMG_20260814_221842-removebg-preview_882c4c65.png';
+              }}
+            />
           </div>
           <div>
             <div className="flex items-center gap-1.5 leading-tight">
