@@ -88,6 +88,7 @@ export interface TaskItem {
   id: string;
   title: string;
   description?: string;
+  notes?: string;
   priority: TaskPriority;
   status: TaskStatus;
   category: string;

@@ -347,4 +347,5 @@ export const initialDashboardData: DashboardData = {
       },
     ],
   },
+  workListNotes: {},
 };

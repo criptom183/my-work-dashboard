@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Video, Check, Plus, ArrowRight, StickyNote, Edit2, X } from 'lucide-react';
 import { TaskItem } from '../types';
 
@@ -19,6 +19,11 @@ export const BrandTasksWidget: React.FC<BrandTasksWidgetProps> = ({
 }) => {
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState(tasksListNote);
+
+  // Keep note draft synchronized with prop changes from storage or cloud
+  useEffect(() => {
+    setNoteDraft(tasksListNote || '');
+  }, [tasksListNote]);
 
   const activeCount = tasks.filter((t) => t.status !== 'completed').length;
   const completedCount = tasks.filter((t) => t.status === 'completed').length;

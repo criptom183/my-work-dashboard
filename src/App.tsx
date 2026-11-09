@@ -140,10 +140,40 @@ export default function App() {
 
       try {
         const freshData = await fetchAndParseGoogleSheet(currentUrl);
-        setData(freshData);
 
-        // Broadcast to Cloud Firestore so any user, device, or incognito tab sees the updated data in real time!
-        saveSharedDashboardData(freshData).catch(console.warn);
+        // Preserve all user-added notes (task notes, work list notes, custom item notes)
+        const existingByActivity = new Map<string, WorkItem>();
+        for (const w of dataRef.current.worksCompleted || []) {
+          existingByActivity.set(w.activity.trim().toLowerCase(), w);
+        }
+
+        const mergedWorks = (freshData.worksCompleted || []).map((w) => {
+          const match = existingByActivity.get(w.activity.trim().toLowerCase());
+          if (match) {
+            return {
+              ...w,
+              customNote: w.customNote || match.customNote,
+              monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+            };
+          }
+          return w;
+        });
+
+        const mergedNotes = {
+          ...(dataRef.current.workListNotes || {}),
+          ...(freshData.workListNotes || {}),
+        };
+
+        const mergedData: DashboardData = {
+          ...freshData,
+          worksCompleted: mergedWorks,
+          workListNotes: mergedNotes,
+        };
+
+        setData(mergedData);
+
+        // Broadcast to Cloud Firestore so any user, device, or incognito tab sees the updated data with notes intact!
+        saveSharedDashboardData(mergedData).catch(console.warn);
         if (currentUrl) {
           saveSharedSheetUrl(currentUrl).catch(console.warn);
         }
@@ -173,19 +203,19 @@ export default function App() {
         };
         handleUpdateSyncSettings(updatedSettings);
 
-        saveDashboardToStorage(freshData);
+        saveDashboardToStorage(mergedData);
         setIsSavedInStorage(true);
         setSavedMeta({
           savedAt: new Date().toLocaleString(undefined, {
             dateStyle: 'medium',
             timeStyle: 'short',
           }),
-          fileName: freshData.fileName,
-          totalWorks: freshData.worksCompleted.length,
+          fileName: mergedData.fileName,
+          totalWorks: mergedData.worksCompleted.length,
         });
 
         if (!isSilent) {
-          showToast(`Synced with Google Sheet! Updated ${freshData.worksCompleted.length} deliverables.`);
+          showToast(`Synced with Google Sheet! Updated ${mergedData.worksCompleted.length} deliverables.`);
         }
       } catch (err: any) {
         console.error('Google Sheet sync error:', err);
@@ -225,8 +255,36 @@ export default function App() {
     // 3. Subscribe to active dashboard state (works completed, selected month, available months)
     const unsubDashboard = subscribeToSharedDashboardData((cloudDashboard) => {
       if (cloudDashboard && Array.isArray(cloudDashboard.worksCompleted) && cloudDashboard.worksCompleted.length > 0) {
-        setData(cloudDashboard);
-        saveDashboardToStorage(cloudDashboard);
+        setData((prev) => {
+          // Merge workListNotes so any existing notes in local state are never wiped
+          const mergedNotes = {
+            ...(prev.workListNotes || {}),
+            ...(cloudDashboard.workListNotes || {}),
+          };
+
+          const existingByActivity = new Map<string, WorkItem>();
+          for (const w of prev.worksCompleted || []) {
+            existingByActivity.set(w.activity.trim().toLowerCase(), w);
+          }
+
+          const mergedWorks = cloudDashboard.worksCompleted.map((w) => {
+            const match = existingByActivity.get(w.activity.trim().toLowerCase());
+            return {
+              ...w,
+              customNote: w.customNote || match?.customNote,
+              monthlyNotes: { ...(match?.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+            };
+          });
+
+          const merged: DashboardData = {
+            ...cloudDashboard,
+            worksCompleted: mergedWorks,
+            workListNotes: mergedNotes,
+          };
+          saveDashboardToStorage(merged);
+          return merged;
+        });
+
         setIsSavedInStorage(true);
         if (cloudDashboard.selectedMonth) {
           setSelectedMonth(cloudDashboard.selectedMonth);
@@ -258,9 +316,13 @@ export default function App() {
     if (loaded && loaded.data) {
       // If loaded cache has older version (< 15 deliverables), upgrade to the new template
       if (!loaded.data.worksCompleted || loaded.data.worksCompleted.length < 15) {
-        setData(initialDashboardData);
-        saveDashboardToStorage(initialDashboardData);
-        saveSharedDashboardData(initialDashboardData).catch(console.warn);
+        const upgraded = {
+          ...initialDashboardData,
+          workListNotes: loaded.data.workListNotes || {},
+        };
+        setData(upgraded);
+        saveDashboardToStorage(upgraded);
+        saveSharedDashboardData(upgraded).catch(console.warn);
       } else {
         setData(loaded.data);
         // Sync the user's loaded data to Cloud Firestore immediately
@@ -354,6 +416,18 @@ export default function App() {
         ...(prev.workListNotes || {}),
         [listKey]: noteText,
       };
+
+      // If updating a task list note, synchronize both global 'tasks' and month-specific keys
+      if (listKey === 'tasks' || listKey.startsWith('tasks_')) {
+        updatedNotes['tasks'] = noteText;
+        if (selectedMonth && selectedMonth !== 'all') {
+          updatedNotes[`tasks_${selectedMonth}`] = noteText;
+        }
+        for (const m of prev.availableMonths || []) {
+          updatedNotes[`tasks_${m}`] = noteText;
+        }
+      }
+
       const updatedDashboard: DashboardData = {
         ...prev,
         workListNotes: updatedNotes,
@@ -363,7 +437,7 @@ export default function App() {
       return updatedDashboard;
     });
     setIsSavedInStorage(true);
-    showToast(noteText ? 'Note saved to work list!' : 'Note cleared.');
+    showToast(noteText ? 'Note saved!' : 'Note cleared.');
   };
 
   const handleAddWorkItem = (
@@ -567,6 +641,12 @@ export default function App() {
               setData((prev) => ({ ...prev, sheetSourceUrl: newUrl }));
               saveSharedSheetUrl(newUrl).catch(console.warn);
             }}
+            tasksListNote={
+              data.workListNotes?.['tasks'] ||
+              (selectedMonth ? data.workListNotes?.[`tasks_${selectedMonth}`] : '') ||
+              ''
+            }
+            onUpdateTasksListNote={(note) => handleUpdateWorkListNote('tasks', note)}
           />
         </main>
 
@@ -761,10 +841,12 @@ export default function App() {
                 tasks={tasks}
                 onOpenTaskManager={navigateToTasks}
                 onAddTask={navigateToTasks}
-                tasksListNote={data.workListNotes?.[`tasks_${selectedMonth}`] || ''}
-                onUpdateTasksListNote={(note) =>
-                  handleUpdateWorkListNote(`tasks_${selectedMonth}`, note)
+                tasksListNote={
+                  data.workListNotes?.['tasks'] ||
+                  (selectedMonth ? data.workListNotes?.[`tasks_${selectedMonth}`] : '') ||
+                  ''
                 }
+                onUpdateTasksListNote={(note) => handleUpdateWorkListNote('tasks', note)}
               />
             </div>
           </div>
