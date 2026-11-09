@@ -9,9 +9,11 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  arrayUnion,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { TaskItem, DashboardData } from '../types';
+import { isTaskDeleted, markTaskAsDeleted } from './taskStorage';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
@@ -40,6 +42,9 @@ export function subscribeToFirestoreTasks(
       (snapshot) => {
         const tasks: TaskItem[] = [];
         snapshot.forEach((docSnap) => {
+          if (isTaskDeleted(docSnap.id)) {
+            return;
+          }
           const data = docSnap.data();
           tasks.push({
             id: docSnap.id,
@@ -99,11 +104,30 @@ export async function saveTaskToFirestore(task: TaskItem): Promise<void> {
 }
 
 /**
- * Delete a task from Cloud Firestore.
+ * Delete a task from Cloud Firestore permanently.
  */
 export async function deleteTaskFromFirestore(taskId: string): Promise<void> {
-  const taskRef = doc(db, TASKS_COLLECTION, taskId);
-  await deleteDoc(taskRef);
+  markTaskAsDeleted(taskId);
+  try {
+    const taskRef = doc(db, TASKS_COLLECTION, taskId);
+    await deleteDoc(taskRef);
+  } catch (err) {
+    console.warn('Firestore task doc delete warning:', err);
+  }
+
+  try {
+    const deletedConfigRef = doc(db, CONFIG_COLLECTION, 'deleted_tasks');
+    await setDoc(
+      deletedConfigRef,
+      {
+        ids: arrayUnion(taskId),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Firestore deleted_tasks config update warning:', err);
+  }
 }
 
 /**

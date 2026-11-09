@@ -28,6 +28,7 @@ import {
 import {
   loadTasksFromStorage,
   saveTasksToStorage,
+  isTaskDeleted,
 } from './utils/taskStorage';
 import {
   fetchAndParseGoogleSheet,
@@ -179,12 +180,14 @@ export default function App() {
         }
 
         if (freshData.tasks && freshData.tasks.length > 0) {
-          handleUpdateTasks(freshData.tasks);
+          const validTasks = freshData.tasks.filter((t) => !isTaskDeleted(t.id));
+          handleUpdateTasks(validTasks);
         } else {
           try {
             const publicTasks = await fetchTasksPubliclyFromGoogleSheet(currentUrl);
             if (publicTasks.length > 0) {
-              handleUpdateTasks(publicTasks);
+              const validTasks = publicTasks.filter((t) => !isTaskDeleted(t.id));
+              handleUpdateTasks(validTasks);
             }
           } catch {
             // Continue if Tasks tab not present
@@ -236,9 +239,10 @@ export default function App() {
   useEffect(() => {
     // 1. Subscribe to tasks
     const unsubTasks = subscribeToFirestoreTasks((cloudTasks) => {
-      if (cloudTasks && cloudTasks.length > 0) {
-        setTasks(cloudTasks);
-        saveTasksToStorage(cloudTasks);
+      if (Array.isArray(cloudTasks)) {
+        const validTasks = cloudTasks.filter((t) => !isTaskDeleted(t.id));
+        setTasks(validTasks);
+        saveTasksToStorage(validTasks);
       }
     });
 
