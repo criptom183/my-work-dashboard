@@ -53,6 +53,10 @@ import {
   subscribeToSharedDashboardData,
   saveDeliverableDetailsToFirestore,
   subscribeToDeliverableDetails,
+  saveSharedSyncSettings,
+  subscribeToSharedSyncSettings,
+  saveSharedSyncedTopics,
+  subscribeToSharedSyncedTopics,
 } from './utils/firestoreTasks';
 import {
   RefreshCw,
@@ -580,11 +584,47 @@ export default function App() {
       }
     });
 
+    // 5. Subscribe to shared SyncSettings (including Google Apps Script Web App webhookUrl) across desktop & mobile
+    if (syncSettingsRef.current.webhookUrl) {
+      saveSharedSyncSettings(syncSettingsRef.current).catch(console.warn);
+    }
+    const existingSynced = Array.from(getSyncedTopicKeys());
+    if (existingSynced.length > 0) {
+      saveSharedSyncedTopics(existingSynced).catch(console.warn);
+    }
+
+    const unsubSyncSettings = subscribeToSharedSyncSettings((cloudSettings) => {
+      setSyncSettings((prev) => {
+        const mergedWebhook = cloudSettings.webhookUrl || prev.webhookUrl;
+        // If this browser (e.g. computer) has a webhookUrl in localStorage that isn't in Firestore yet, push it to Firestore!
+        if (prev.webhookUrl && !cloudSettings.webhookUrl) {
+          saveSharedSyncSettings(prev).catch(console.warn);
+        }
+        const next: SyncSettings = {
+          autoSync:
+            typeof cloudSettings.autoSync === 'boolean' ? cloudSettings.autoSync : prev.autoSync,
+          interval: cloudSettings.interval || prev.interval,
+          webhookUrl: mergedWebhook,
+          lastSyncedAt: cloudSettings.lastSyncedAt || prev.lastSyncedAt,
+        };
+        saveSyncSettingsToStorage(next);
+        return next;
+      });
+    });
+
+    const unsubSyncedTopics = subscribeToSharedSyncedTopics((cloudKeys) => {
+      if (Array.isArray(cloudKeys) && cloudKeys.length > 0) {
+        markTopicsAsSynced(cloudKeys);
+      }
+    });
+
     return () => {
       unsubTasks();
       unsubSheetUrl();
       unsubDashboard();
       unsubDetails();
+      unsubSyncSettings();
+      unsubSyncedTopics();
     };
   }, [handleSyncGoogleSheet]);
 
@@ -908,7 +948,9 @@ export default function App() {
           } catch {}
         });
 
-        markTopicsAsSynced([buildTopicSyncKey(deliverableName, targetMonth, title)]);
+        const syncKey = buildTopicSyncKey(deliverableName, targetMonth, title);
+        markTopicsAsSynced([syncKey]);
+        saveSharedSyncedTopics([syncKey]).catch(console.warn);
         showToast(`Detail "${title}" added & autosaved to Google Sheet!`);
         return;
       } catch (e) {
@@ -1169,6 +1211,7 @@ export default function App() {
       }
 
       markTopicsAsSynced(newlySyncedKeys);
+      saveSharedSyncedTopics(newlySyncedKeys).catch(console.warn);
       showToast(`Successfully added ${newItems.length} new detail(s) into your Google Sheet!`);
     } catch (err) {
       console.error('Error syncing all details to Google Sheet:', err);

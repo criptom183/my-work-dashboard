@@ -348,6 +348,9 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       }
 
       markTopicsAsSynced(newlySyncedKeys);
+      import('../utils/firestoreTasks')
+        .then((m) => m.saveSharedSyncedTopics(newlySyncedKeys))
+        .catch(console.warn);
 
       setTestResult({
         message: `✅ Pushed ${newItems.length} new details into your Google Sheet "Topic Breakdown" tab! (${items.length - newItems.length} were already synced, skipping duplicates).`,

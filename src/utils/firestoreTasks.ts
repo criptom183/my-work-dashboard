@@ -12,7 +12,7 @@ import {
   arrayUnion,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { TaskItem, DashboardData } from '../types';
+import { TaskItem, DashboardData, SyncSettings } from '../types';
 import { isTaskDeleted, markTaskAsDeleted } from './taskStorage';
 import { sanitizeWorkItemSubItems } from './storage';
 
@@ -309,4 +309,110 @@ export function subscribeToDeliverableDetails(
     return () => {};
   }
 }
+
+/**
+ * Save SyncSettings (including Google Apps Script Web App webhookUrl, autoSync, and interval)
+ * to Cloud Firestore so computer and mobile always share the same Apps Script link!
+ */
+export async function saveSharedSyncSettings(settings: SyncSettings): Promise<void> {
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'sync_settings');
+    const payload: Record<string, any> = {
+      autoSync: settings.autoSync,
+      interval: settings.interval,
+      updatedAt: new Date().toISOString(),
+    };
+    if (settings.webhookUrl !== undefined) {
+      payload.webhookUrl = settings.webhookUrl;
+    }
+    if (settings.lastSyncedAt !== undefined) {
+      payload.lastSyncedAt = settings.lastSyncedAt;
+    }
+    await setDoc(ref, payload, { merge: true });
+  } catch (err) {
+    console.warn('Failed to save sync_settings to Firestore:', err);
+  }
+}
+
+/**
+ * Subscribe to shared SyncSettings (including webhookUrl) from Cloud Firestore across all devices.
+ */
+export function subscribeToSharedSyncSettings(
+  onSettingsUpdated: (settings: Partial<SyncSettings>) => void
+): () => void {
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'sync_settings');
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data();
+          if (raw && typeof raw === 'object') {
+            onSettingsUpdated({
+              autoSync: typeof raw.autoSync === 'boolean' ? raw.autoSync : undefined,
+              interval: raw.interval || undefined,
+              webhookUrl: typeof raw.webhookUrl === 'string' ? raw.webhookUrl : undefined,
+              lastSyncedAt: typeof raw.lastSyncedAt === 'string' ? raw.lastSyncedAt : undefined,
+            });
+          }
+        }
+      },
+      (error) => {
+        console.warn('Firestore sync_settings subscription error:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('Failed to subscribe to sync_settings:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Save synced topic keys to Cloud Firestore so deduplication works across desktop and mobile.
+ */
+export async function saveSharedSyncedTopics(keys: string[]): Promise<void> {
+  try {
+    if (!keys || keys.length === 0) return;
+    const ref = doc(db, CONFIG_COLLECTION, 'synced_topics');
+    await setDoc(
+      ref,
+      {
+        keys: arrayUnion(...keys),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Failed to save synced_topics to Firestore:', err);
+  }
+}
+
+/**
+ * Subscribe to shared synced topic keys from Cloud Firestore.
+ */
+export function subscribeToSharedSyncedTopics(
+  onKeysUpdated: (keys: string[]) => void
+): () => void {
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'synced_topics');
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data();
+          if (raw && Array.isArray(raw.keys)) {
+            onKeysUpdated(raw.keys);
+          }
+        }
+      },
+      (error) => {
+        console.warn('Firestore synced_topics subscription error:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('Failed to subscribe to synced_topics:', err);
+    return () => {};
+  }
+}
+
 
