@@ -72,6 +72,21 @@ function handleRequest(e) {
     var action = params.action || body.action || "addTopic";
     var timestamp = new Date().toLocaleString();
 
+    // Build existing topics lookup to avoid duplicates: "month|deliverable|title"
+    var existingKeys = {};
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      var existingData = sheet.getRange(2, 2, lastRow - 1, 3).getValues();
+      for (var r = 0; r < existingData.length; r++) {
+        var eMonth = String(existingData[r][0] || '').trim().toLowerCase();
+        var eDeliverable = String(existingData[r][1] || '').trim().toLowerCase();
+        var eTitle = String(existingData[r][2] || '').trim().toLowerCase();
+        if (eTitle) {
+          existingKeys[eMonth + '|' + eDeliverable + '|' + eTitle] = true;
+        }
+      }
+    }
+
     // 1. Support bulk sync of multiple topics
     var items = body.items;
     if (!items && params.items) {
@@ -82,13 +97,22 @@ function handleRequest(e) {
       var newRows = [];
       for (var i = 0; i < items.length; i++) {
         var itm = items[i];
-        newRows.push([
-          timestamp,
-          itm.month || params.month || "Nov 2026",
-          itm.deliverable || itm.activity || "Deliverable",
-          itm.title || itm.topic || "",
-          itm.note || ""
-        ]);
+        var itmMonth = String(itm.month || params.month || "Nov 2026").trim();
+        var itmDeliverable = String(itm.deliverable || itm.activity || "Deliverable").trim();
+        var itmTitle = String(itm.title || itm.topic || "").trim();
+        var lookupKey = itmMonth.toLowerCase() + '|' + itmDeliverable.toLowerCase() + '|' + itmTitle.toLowerCase();
+
+        // Skip if already in sheet
+        if (!existingKeys[lookupKey]) {
+          existingKeys[lookupKey] = true;
+          newRows.push([
+            timestamp,
+            itmMonth,
+            itmDeliverable,
+            itmTitle,
+            itm.note || ""
+          ]);
+        }
       }
       if (newRows.length > 0) {
         var startRow = sheet.getLastRow() + 1;
@@ -96,16 +120,27 @@ function handleRequest(e) {
       }
       return ContentService.createTextOutput(JSON.stringify({
         status: "success",
-        message: "Bulk synced " + newRows.length + " topics into Google Sheet",
-        count: newRows.length
+        message: "Synced " + newRows.length + " new topics (skipped duplicates)",
+        added: newRows.length
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // 2. Add single topic or test row
-    var deliverable = params.deliverable || body.deliverable || "Dashboard Test";
-    var month = params.month || body.month || "Current Month";
-    var title = params.title || body.title || params.topic || body.topic || "Test Topic Connection";
+    var deliverable = String(params.deliverable || body.deliverable || "Dashboard Test").trim();
+    var month = String(params.month || body.month || "Current Month").trim();
+    var title = String(params.title || body.title || params.topic || body.topic || "Test Topic Connection").trim();
     var note = params.note || body.note || "";
+
+    var singleKey = month.toLowerCase() + '|' + deliverable.toLowerCase() + '|' + title.toLowerCase();
+
+    // If already exists and not a test connection row, skip duplicate
+    if (action !== "test" && existingKeys[singleKey]) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "skipped",
+        message: "Topic already exists in sheet, skipping duplicate",
+        data: { deliverable: deliverable, title: title, month: month }
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
     sheet.appendRow([
       timestamp,
@@ -116,9 +151,9 @@ function handleRequest(e) {
     ]);
 
     // Format new row styling
-    var lastRow = sheet.getLastRow();
-    sheet.getRange(lastRow, 1).setHorizontalAlignment("center");
-    sheet.getRange(lastRow, 2).setHorizontalAlignment("center");
+    var appendedRow = sheet.getLastRow();
+    sheet.getRange(appendedRow, 1).setHorizontalAlignment("center");
+    sheet.getRange(appendedRow, 2).setHorizontalAlignment("center");
 
     try {
       sheet.autoResizeColumns(1, 5);

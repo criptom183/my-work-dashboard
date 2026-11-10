@@ -25,6 +25,7 @@ import { DashboardData, SyncSettings, AutoSyncInterval, WorkItem } from '../type
 import { fetchAndParseGoogleSheet } from '../utils/googleSheetSync';
 import { parseExcelWorkbook } from '../utils/sheetParser';
 import { GOOGLE_APPS_SCRIPT_CODE } from '../utils/googleAppsScriptTemplate';
+import { buildTopicSyncKey, getSyncedTopicKeys, markTopicsAsSynced } from '../utils/storage';
 
 interface UploadSheetModalProps {
   isOpen: boolean;
@@ -284,6 +285,19 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       return;
     }
 
+    // Filter out topics that have already been synced
+    const syncedKeys = getSyncedTopicKeys();
+    const newItems = items.filter(
+      (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
+    );
+
+    if (newItems.length === 0) {
+      setTestResult({
+        message: 'All topics are already synced in your Google Sheet! No duplicates were added.',
+      });
+      return;
+    }
+
     setIsBulkSyncing(true);
     setTestResult(null);
 
@@ -293,9 +307,11 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
         webhookUrl: url,
       });
 
-      // Send each topic row-by-row with verified addTopic action
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
+      const newlySyncedKeys: string[] = [];
+
+      // Send each new topic row-by-row with verified addTopic action
+      for (let i = 0; i < newItems.length; i++) {
+        const item = newItems[i];
         const queryParams = new URLSearchParams({
           action: 'addTopic',
           deliverable: item.deliverable,
@@ -324,17 +340,21 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
           } catch {}
         });
 
-        if (i < items.length - 1) {
+        newlySyncedKeys.push(buildTopicSyncKey(item.deliverable, item.month, item.title));
+
+        if (i < newItems.length - 1) {
           await new Promise((r) => setTimeout(r, 150));
         }
       }
 
+      markTopicsAsSynced(newlySyncedKeys);
+
       setTestResult({
-        message: `✅ Pushed all ${items.length} topics into your Google Sheet "Topic Breakdown" tab! Check your Google Sheet to view them.`,
+        message: `✅ Pushed ${newItems.length} new topics into your Google Sheet "Topic Breakdown" tab! (${items.length - newItems.length} were already synced, skipping duplicates).`,
       });
     } catch (err: any) {
       setTestResult({
-        message: `Sent update of ${items.length} topics. Please check your Google Sheet.`,
+        message: `Sent update of ${newItems.length} topics. Please check your Google Sheet.`,
       });
     } finally {
       setIsBulkSyncing(false);

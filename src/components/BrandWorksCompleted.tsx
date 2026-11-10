@@ -268,7 +268,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {onSyncAllTopics && subList.length > 0 && (
+            {!isViewOnly && onSyncAllTopics && subList.length > 0 && (
               <button
                 type="button"
                 onClick={onSyncAllTopics}
@@ -280,7 +280,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 <span>Sync to Sheet</span>
               </button>
             )}
-            {onExportSubItemsSheet && (
+            {!isViewOnly && onExportSubItemsSheet && (
               <button
                 type="button"
                 onClick={onExportSubItemsSheet}
@@ -487,7 +487,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               </button>
             )}
 
-            {onExportSubItemsSheet && (
+            {!isViewOnly && onExportSubItemsSheet && (
               <button
                 type="button"
                 onClick={onExportSubItemsSheet}
@@ -499,7 +499,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               </button>
             )}
 
-            {onSyncAllTopics && (
+            {!isViewOnly && onSyncAllTopics && (
               <button
                 type="button"
                 onClick={onSyncAllTopics}
@@ -512,7 +512,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               </button>
             )}
 
-            {onOpenSyncModal && (
+            {!isViewOnly && onOpenSyncModal && (
               <button
                 type="button"
                 onClick={onOpenSyncModal}
@@ -672,54 +672,61 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
 
                     {/* Middle Info & Full Width Progress Bar */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2 mb-0.5">
-                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                          <h4 className="text-sm font-bold text-slate-900 truncate">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+                          {/* Main Work Title: Bold, prominent, easily readable */}
+                          <h4 className="text-[15px] font-extrabold text-[#1D1B48] tracking-tight">
                             {item.activity}
                           </h4>
-                          {!isViewOnly && (
-                            <button
-                              type="button"
-                              onClick={() => openInlineNote(item)}
-                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 ${
-                                item.customNote
-                                  ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/80'
-                                  : 'text-slate-400 hover:text-[#E11D74] hover:bg-pink-50/70 opacity-80 group-hover:opacity-100'
-                              }`}
-                              title={item.customNote ? 'Edit note for this item' : 'Add a small note to this item'}
-                            >
-                              <StickyNote className="w-2.5 h-2.5" />
-                              <span>{item.customNote ? 'Edit note' : '+ Note'}</span>
-                            </button>
-                          )}
 
-                          {/* Sub-item Topics Collapsible Toggle */}
+                          {/* Sub-item Topics Button: High-visibility, prominent interactive button */}
                           <button
                             type="button"
                             onClick={() => toggleExpand(item.id)}
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 ${
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 shadow-2xs active:scale-95 ${
                               isExpanded
-                                ? 'bg-[#1D1B48] text-white shadow-2xs'
+                                ? 'bg-[#1D1B48] text-white ring-2 ring-indigo-400/50 shadow-xs'
                                 : item.subItems && item.subItems.length > 0
-                                ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
                                 : !isViewOnly
-                                ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200/80'
+                                ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300'
                                 : 'hidden'
                             }`}
                             title={isExpanded ? 'Collapse topic breakdown' : 'Expand topic breakdown'}
                           >
-                            <ListTree className="w-2.5 h-2.5" />
+                            <ListTree className={`w-3.5 h-3.5 ${
+                              isExpanded || (item.subItems && item.subItems.length > 0)
+                                ? 'text-indigo-100'
+                                : 'text-indigo-600'
+                            }`} />
                             <span>
                               {item.subItems && item.subItems.length > 0
-                                ? `${item.subItems.length} topics`
-                                : '+ Topics'}
+                                ? `${item.subItems.length} ${item.subItems.length === 1 ? 'Topic' : 'Topics'}`
+                                : '+ Add Topics'}
                             </span>
                             {isExpanded ? (
-                              <ChevronDown className="w-2.5 h-2.5" />
+                              <ChevronDown className="w-3.5 h-3.5 opacity-90" />
                             ) : (
-                              <ChevronRight className="w-2.5 h-2.5" />
+                              <ChevronRight className="w-3.5 h-3.5 opacity-90" />
                             )}
                           </button>
+
+                          {/* Discreet Note action for editors */}
+                          {!isViewOnly && (
+                            <button
+                              type="button"
+                              onClick={() => openInlineNote(item)}
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer shrink-0 ${
+                                item.customNote
+                                  ? 'text-amber-800 bg-amber-50/70 hover:bg-amber-100/70 border border-amber-200/50'
+                                  : 'text-slate-400 hover:text-amber-800 hover:bg-amber-50/50'
+                              }`}
+                              title={item.customNote ? 'Edit note for this deliverable' : 'Add a note to this deliverable'}
+                            >
+                              <StickyNote className="w-2.5 h-2.5 text-amber-600/70" />
+                              <span>{item.customNote ? 'Note' : '+ Note'}</span>
+                            </button>
+                          )}
                         </div>
 
                         <span className="text-xs font-semibold text-slate-400 tabular-nums shrink-0">
@@ -727,34 +734,34 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                         </span>
                       </div>
 
-                      <p className="text-xs text-slate-500 truncate mb-1.5">
+                      <p className="text-xs text-slate-500 truncate mb-1">
                         {item.notes || `${item.category} deliverables`}
                       </p>
 
-                      {/* Display Attached Small Note if present */}
+                      {/* Display Attached Note: Soft, compact amber background without dominating */}
                       {item.customNote && !isEditingThisNote && (
-                        <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-amber-50/80 border border-amber-200/80 flex items-center justify-between gap-2 text-xs text-amber-950">
+                        <div className="mb-2 px-2.5 py-1 rounded-md bg-amber-50/60 border border-amber-200/50 flex items-center justify-between gap-2 text-[11px] text-amber-900/80">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <StickyNote className="w-3 h-3 text-amber-600 shrink-0" />
-                            <span className="font-medium break-words">{item.customNote}</span>
+                            <StickyNote className="w-3 h-3 text-amber-600/70 shrink-0" />
+                            <span className="font-normal break-words">{item.customNote}</span>
                           </div>
                           {!isViewOnly && (
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 type="button"
                                 onClick={() => openInlineNote(item)}
-                                className="p-0.5 text-amber-700 hover:text-amber-950 cursor-pointer"
+                                className="p-0.5 text-amber-700/70 hover:text-amber-950 cursor-pointer"
                                 title="Edit note"
                               >
-                                <Edit2 className="w-3 h-3" />
+                                <Edit2 className="w-2.5 h-2.5" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => clearItemNote(item)}
-                                className="p-0.5 text-amber-700 hover:text-rose-600 cursor-pointer"
+                                className="p-0.5 text-amber-700/70 hover:text-rose-600 cursor-pointer"
                                 title="Remove note"
                               >
-                                <X className="w-3 h-3" />
+                                <X className="w-2.5 h-2.5" />
                               </button>
                             </div>
                           )}
@@ -986,32 +993,36 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                   <React.Fragment key={w.id}>
                     <tr className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-3">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-bold text-slate-900">{w.activity}</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-extrabold text-[#1D1B48] text-sm">{w.activity}</span>
                           <button
                             type="button"
                             onClick={() => toggleExpand(w.id)}
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 ${
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 shadow-2xs active:scale-95 ${
                               isExpanded
-                                ? 'bg-[#1D1B48] text-white shadow-2xs'
+                                ? 'bg-[#1D1B48] text-white ring-2 ring-indigo-400/50 shadow-xs'
                                 : w.subItems && w.subItems.length > 0
-                                ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
                                 : !isViewOnly
-                                ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200/80'
+                                ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300'
                                 : 'hidden'
                             }`}
                             title={isExpanded ? 'Collapse topics' : 'Expand topics'}
                           >
-                            <ListTree className="w-2.5 h-2.5" />
+                            <ListTree className={`w-3.5 h-3.5 ${
+                              isExpanded || (w.subItems && w.subItems.length > 0)
+                                ? 'text-indigo-100'
+                                : 'text-indigo-600'
+                            }`} />
                             <span>
                               {w.subItems && w.subItems.length > 0
-                                ? `${w.subItems.length} topics`
-                                : '+ Topics'}
+                                ? `${w.subItems.length} ${w.subItems.length === 1 ? 'Topic' : 'Topics'}`
+                                : '+ Add Topics'}
                             </span>
                             {isExpanded ? (
-                              <ChevronDown className="w-2.5 h-2.5" />
+                              <ChevronDown className="w-3.5 h-3.5 opacity-90" />
                             ) : (
-                              <ChevronRight className="w-2.5 h-2.5" />
+                              <ChevronRight className="w-3.5 h-3.5 opacity-90" />
                             )}
                           </button>
                         </div>
@@ -1050,8 +1061,8 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                         ) : (
                           <div className="space-y-1">
                             {w.customNote && (
-                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 border border-amber-200/80 text-[11px] font-medium text-amber-900">
-                                <StickyNote className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50/60 border border-amber-200/50 text-[11px] font-normal text-amber-900/80">
+                                <StickyNote className="w-2.5 h-2.5 text-amber-600/70 shrink-0" />
                                 <span>{w.customNote}</span>
                               </div>
                             )}

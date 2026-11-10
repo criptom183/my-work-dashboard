@@ -189,3 +189,53 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
     return works;
   }
 }
+
+const SYNCED_TOPICS_KEY = 'vzone_marketing_dashboard_synced_topics_v1';
+
+/**
+ * Normalizes a topic key for deduplication check:
+ * e.g. "reels video|nov 2026|my topic title"
+ */
+export function buildTopicSyncKey(deliverable: string, month: string, title: string): string {
+  return `${deliverable.trim().toLowerCase()}|${month.trim().toLowerCase()}|${title.trim().toLowerCase()}`;
+}
+
+/**
+ * Retrieve all topic keys that have already been exported/synced to Google Sheet
+ */
+export function getSyncedTopicKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SYNCED_TOPICS_KEY);
+    if (raw) {
+      return new Set(JSON.parse(raw));
+    }
+  } catch (e) {
+    console.error('Failed to get synced topic keys:', e);
+  }
+  return new Set();
+}
+
+/**
+ * Mark topic keys as synced so future sync operations skip them
+ */
+export function markTopicsAsSynced(keys: string[]): void {
+  try {
+    const current = getSyncedTopicKeys();
+    for (const k of keys) {
+      if (k) current.add(k.trim().toLowerCase());
+    }
+    localStorage.setItem(SYNCED_TOPICS_KEY, JSON.stringify(Array.from(current)));
+  } catch (e) {
+    console.error('Failed to mark topics as synced:', e);
+  }
+}
+
+/**
+ * Reset synced keys if user wishes to force full re-sync
+ */
+export function clearSyncedTopicKeys(): void {
+  try {
+    localStorage.removeItem(SYNCED_TOPICS_KEY);
+  } catch {}
+}
+

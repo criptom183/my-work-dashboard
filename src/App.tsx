@@ -26,6 +26,9 @@ import {
   saveSyncSettingsToStorage,
   saveTopicsBackup,
   restoreTopicsFromBackup,
+  buildTopicSyncKey,
+  getSyncedTopicKeys,
+  markTopicsAsSynced,
 } from './utils/storage';
 import {
   loadTasksFromStorage,
@@ -716,6 +719,7 @@ export default function App() {
           } catch {}
         });
 
+        markTopicsAsSynced([buildTopicSyncKey(deliverableName, targetMonth, title)]);
         showToast(`Topic "${title}" added & autosaved to Google Sheet!`);
         return;
       } catch (e) {
@@ -882,13 +886,29 @@ export default function App() {
       return;
     }
 
+    // Filter out topics that have already been synced to Google Sheet
+    const syncedKeys = getSyncedTopicKeys();
+    const newItems = items.filter(
+      (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
+    );
+
+    if (newItems.length === 0) {
+      showToast('All topics are already synced in your Google Sheet! No duplicates added.', 'info');
+      return;
+    }
+
     setIsSyncingAllTopics(true);
-    showToast(`Syncing ${items.length} previous topics to your Google Sheet...`, 'info');
+    showToast(
+      `Syncing ${newItems.length} new topic(s) to your Google Sheet... (${items.length - newItems.length} already synced)`,
+      'info'
+    );
 
     try {
-      // Send each topic row-by-row with verified addTopic action
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
+      const newlySyncedKeys: string[] = [];
+
+      // Send each new topic row-by-row with verified addTopic action
+      for (let i = 0; i < newItems.length; i++) {
+        const item = newItems[i];
         const queryParams = new URLSearchParams({
           action: 'addTopic',
           deliverable: item.deliverable,
@@ -917,12 +937,15 @@ export default function App() {
           } catch {}
         });
 
-        if (i < items.length - 1) {
+        newlySyncedKeys.push(buildTopicSyncKey(item.deliverable, item.month, item.title));
+
+        if (i < newItems.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 150));
         }
       }
 
-      showToast(`Successfully added all ${items.length} previous topics into your Google Sheet!`);
+      markTopicsAsSynced(newlySyncedKeys);
+      showToast(`Successfully added ${newItems.length} new topic(s) into your Google Sheet!`);
     } catch (err) {
       console.error('Error syncing all topics to Google Sheet:', err);
       showToast('Sent topics to Google Sheet. Please check your sheet.', 'info');
