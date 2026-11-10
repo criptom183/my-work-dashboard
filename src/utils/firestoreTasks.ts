@@ -14,6 +14,7 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { TaskItem, DashboardData } from '../types';
 import { isTaskDeleted, markTaskAsDeleted } from './taskStorage';
+import { sanitizeWorkItemSubItems } from './storage';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
