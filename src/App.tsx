@@ -24,6 +24,8 @@ import {
   StorageMeta,
   loadSyncSettingsFromStorage,
   saveSyncSettingsToStorage,
+  saveTopicsBackup,
+  restoreTopicsFromBackup,
 } from './utils/storage';
 import {
   loadTasksFromStorage,
@@ -235,17 +237,22 @@ export default function App() {
           existingByActivity.set(w.activity.trim().toLowerCase(), w);
         }
 
-        const mergedWorks = (freshData.worksCompleted || []).map((w) => {
-          const match = existingByActivity.get(w.activity.trim().toLowerCase());
-          if (match) {
-            return {
-              ...w,
-              customNote: w.customNote || match.customNote,
-              monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-            };
-          }
-          return w;
-        });
+        const mergedWorks = restoreTopicsFromBackup(
+          (freshData.worksCompleted || []).map((w) => {
+            const match = existingByActivity.get(w.activity.trim().toLowerCase());
+            if (match) {
+              return {
+                ...w,
+                customNote: w.customNote || match.customNote,
+                monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+                subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
+                monthlySubItems: { ...(match.monthlySubItems || {}), ...(w.monthlySubItems || {}) },
+              };
+            }
+            return w;
+          })
+        );
+        saveTopicsBackup(mergedWorks);
 
         const mergedNotes = {
           ...(dataRef.current.workListNotes || {}),
@@ -358,14 +365,19 @@ export default function App() {
             existingByActivity.set(w.activity.trim().toLowerCase(), w);
           }
 
-          const mergedWorks = cloudDashboard.worksCompleted.map((w) => {
-            const match = existingByActivity.get(w.activity.trim().toLowerCase());
-            return {
-              ...w,
-              customNote: w.customNote || match?.customNote,
-              monthlyNotes: { ...(match?.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-            };
-          });
+          const mergedWorks = restoreTopicsFromBackup(
+            cloudDashboard.worksCompleted.map((w) => {
+              const match = existingByActivity.get(w.activity.trim().toLowerCase());
+              return {
+                ...w,
+                customNote: w.customNote || match?.customNote,
+                monthlyNotes: { ...(match?.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+                subItems: (w.subItems && w.subItems.length > 0) ? w.subItems : match?.subItems,
+                monthlySubItems: { ...(match?.monthlySubItems || {}), ...(w.monthlySubItems || {}) },
+              };
+            })
+          );
+          saveTopicsBackup(mergedWorks);
 
           const merged: DashboardData = {
             ...cloudDashboard,
@@ -405,19 +417,29 @@ export default function App() {
   useEffect(() => {
     const loaded = loadDashboardFromStorage();
     if (loaded && loaded.data) {
+      const restoredWorks = restoreTopicsFromBackup(loaded.data.worksCompleted || []);
+      const completeData = {
+        ...loaded.data,
+        worksCompleted: restoredWorks,
+      };
+
       // If loaded cache has older version (< 15 deliverables), upgrade to the new template
       if (!loaded.data.worksCompleted || loaded.data.worksCompleted.length < 15) {
         const upgraded = {
           ...initialDashboardData,
           workListNotes: loaded.data.workListNotes || {},
+          worksCompleted: restoreTopicsFromBackup(initialDashboardData.worksCompleted),
         };
         setData(upgraded);
         saveDashboardToStorage(upgraded);
+        saveTopicsBackup(upgraded.worksCompleted);
         saveSharedDashboardData(upgraded).catch(console.warn);
       } else {
-        setData(loaded.data);
+        setData(completeData);
+        saveDashboardToStorage(completeData);
+        saveTopicsBackup(restoredWorks);
         // Sync the user's loaded data to Cloud Firestore immediately
-        saveSharedDashboardData(loaded.data).catch(console.warn);
+        saveSharedDashboardData(completeData).catch(console.warn);
         if (loaded.data.sheetSourceUrl) {
           saveSharedSheetUrl(loaded.data.sheetSourceUrl).catch(console.warn);
         }
@@ -609,7 +631,12 @@ export default function App() {
 
     setData((prev) => {
       const updatedWorks = prev.worksCompleted.map((w) => {
-        if (w.id === cleanId || w.id === workItemId || w.id.replace(/^all-/, '') === cleanId) {
+        if (
+          w.id === cleanId ||
+          w.id === workItemId ||
+          w.id.replace(/^all-/, '') === cleanId ||
+          w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+        ) {
           const monthlySub = { ...(w.monthlySubItems || {}) };
           const currentList = monthlySub[targetMonth]
             ? [...monthlySub[targetMonth]]
@@ -635,11 +662,43 @@ export default function App() {
 
       const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
       saveDashboardToStorage(updatedDashboard);
+      saveTopicsBackup(updatedWorks);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
       return updatedDashboard;
     });
 
     setIsSavedInStorage(true);
+
+    // If user configured a Google Apps Script Web App URL, post directly to their Google Sheet in background
+    if (syncSettingsRef.current?.webhookUrl) {
+      try {
+        const deliverableName =
+          dataRef.current.worksCompleted.find(
+            (w) =>
+              w.id === cleanId ||
+              w.id === workItemId ||
+              w.id.replace(/^all-/, '') === cleanId ||
+              w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+          )?.activity || workItemId;
+
+        fetch(syncSettingsRef.current.webhookUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'addTopic',
+            deliverable: deliverableName,
+            month: targetMonth,
+            title: title.trim(),
+            note: note?.trim() || '',
+            createdAt: newSubItem.createdAt,
+          }),
+        }).catch((err) => console.warn('Google Sheet webhook autosave error:', err));
+      } catch (e) {
+        console.warn('Google Sheet webhook dispatch error:', e);
+      }
+    }
+
     showToast(`Topic "${title}" added and autosaved!`);
   };
 
@@ -654,7 +713,12 @@ export default function App() {
 
     setData((prev) => {
       const updatedWorks = prev.worksCompleted.map((w) => {
-        if (w.id === cleanId || w.id === workItemId || w.id.replace(/^all-/, '') === cleanId) {
+        if (
+          w.id === cleanId ||
+          w.id === workItemId ||
+          w.id.replace(/^all-/, '') === cleanId ||
+          w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+        ) {
           const monthlySub = { ...(w.monthlySubItems || {}) };
           const currentList = monthlySub[targetMonth]
             ? [...monthlySub[targetMonth]]
@@ -689,6 +753,7 @@ export default function App() {
 
       const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
       saveDashboardToStorage(updatedDashboard);
+      saveTopicsBackup(updatedWorks);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
       return updatedDashboard;
     });
@@ -704,7 +769,12 @@ export default function App() {
 
     setData((prev) => {
       const updatedWorks = prev.worksCompleted.map((w) => {
-        if (w.id === cleanId || w.id === workItemId || w.id.replace(/^all-/, '') === cleanId) {
+        if (
+          w.id === cleanId ||
+          w.id === workItemId ||
+          w.id.replace(/^all-/, '') === cleanId ||
+          w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+        ) {
           const monthlySub = { ...(w.monthlySubItems || {}) };
           const currentList = monthlySub[targetMonth]
             ? [...monthlySub[targetMonth]]
@@ -730,6 +800,7 @@ export default function App() {
 
       const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
       saveDashboardToStorage(updatedDashboard);
+      saveTopicsBackup(updatedWorks);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
       return updatedDashboard;
     });
@@ -779,17 +850,22 @@ export default function App() {
       existingByActivity.set(w.activity.trim().toLowerCase(), w);
     }
 
-    const mergedWorks = (newData.worksCompleted || []).map((w) => {
-      const match = existingByActivity.get(w.activity.trim().toLowerCase());
-      if (match) {
-        return {
-          ...w,
-          customNote: w.customNote || match.customNote,
-          monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-        };
-      }
-      return w;
-    });
+    const mergedWorks = restoreTopicsFromBackup(
+      (newData.worksCompleted || []).map((w) => {
+        const match = existingByActivity.get(w.activity.trim().toLowerCase());
+        if (match) {
+          return {
+            ...w,
+            customNote: w.customNote || match.customNote,
+            monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+            subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
+            monthlySubItems: { ...(match.monthlySubItems || {}), ...(w.monthlySubItems || {}) },
+          };
+        }
+        return w;
+      })
+    );
+    saveTopicsBackup(mergedWorks);
 
     const mergedData: DashboardData = {
       ...newData,

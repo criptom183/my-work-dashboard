@@ -365,12 +365,22 @@ export function getWorksForSelectedMonth(
             ? Object.values(breakdown).reduce((sum, v) => sum + (Number(v) || 0), 0)
             : w.count;
 
+        let allSub: DeliverableSubItem[] = [];
+        if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
+          for (const list of Object.values(w.monthlySubItems)) {
+            allSub = allSub.concat(list || []);
+          }
+        } else if (w.subItems) {
+          allSub = [...w.subItems];
+        }
+
         map.set(key, {
           ...w,
           id: `all-${w.id}`,
           count: total,
           month: 'All Months',
           monthlyBreakdown: breakdown,
+          subItems: allSub,
         });
       } else {
         const existing = map.get(key)!;
@@ -394,6 +404,21 @@ export function getWorksForSelectedMonth(
           }
         } else {
           existing.count += w.count;
+        }
+
+        if (w.monthlySubItems) {
+          existing.monthlySubItems = { ...(existing.monthlySubItems || {}), ...w.monthlySubItems };
+        }
+        if (w.subItems) {
+          const existingSub = existing.subItems || [];
+          const seenIds = new Set(existingSub.map((s) => s.id));
+          for (const s of w.subItems) {
+            if (!seenIds.has(s.id)) {
+              existingSub.push(s);
+              seenIds.add(s.id);
+            }
+          }
+          existing.subItems = existingSub;
         }
 
         existing.monthlyBreakdown = breakdown;
@@ -449,15 +474,18 @@ export function getWorksForSelectedMonth(
 
       // Month-specific sub-items / topics resolution
       let resolvedSubItems: DeliverableSubItem[] = [];
-      if (w.monthlySubItems) {
+      if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
         for (const [m, items] of Object.entries(w.monthlySubItems)) {
           if (isSameMonth(m, selectedMonth)) {
             resolvedSubItems = items || [];
             break;
           }
         }
-      } else if (w.month && isSameMonth(w.month, selectedMonth) && w.subItems) {
-        resolvedSubItems = w.subItems;
+      }
+      if (resolvedSubItems.length === 0 && w.subItems && w.subItems.length > 0) {
+        if (!w.month || isSameMonth(w.month, selectedMonth)) {
+          resolvedSubItems = w.subItems;
+        }
       }
 
       result.push({

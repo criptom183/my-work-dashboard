@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Unlink,
   UploadCloud,
+  Zap,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { DashboardData, SyncSettings, AutoSyncInterval } from '../types';
@@ -45,6 +46,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
   // Sync settings state in modal
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(syncSettings.autoSync);
   const [syncInterval, setSyncInterval] = useState<AutoSyncInterval>(syncSettings.interval);
+  const [webhookUrl, setWebhookUrl] = useState(syncSettings.webhookUrl || '');
 
   const [activeSourceTab, setActiveSourceTab] = useState<'link' | 'file'>('link');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +56,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       setGoogleSheetUrl(currentSheetUrl);
       setAutoSyncEnabled(syncSettings.autoSync);
       setSyncInterval(syncSettings.interval);
+      setWebhookUrl(syncSettings.webhookUrl || '');
       setErrorMessage(null);
       setSuccessMessage(null);
     }
@@ -118,6 +121,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
         autoSync: autoSyncEnabled,
         interval: syncInterval,
         lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        webhookUrl: webhookUrl.trim() || undefined,
       };
       onUpdateSyncSettings(newSettings);
 
@@ -266,6 +270,24 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
               <p className="text-[11px] text-slate-500 mt-1">
                 Copy and paste the URL from your browser address bar when viewing your sheet.
               </p>
+            </div>
+
+            {/* Direct Autosave Apps Script Web App URL */}
+            <div className="p-3.5 bg-indigo-50/70 rounded-xl border border-indigo-200/80 space-y-2">
+              <div className="flex items-center gap-1.5 font-bold text-indigo-950 text-xs">
+                <Zap className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Google Apps Script Web App URL (Direct Autosave into Sheet)</span>
+              </div>
+              <p className="text-[11px] text-indigo-900/80 leading-relaxed">
+                If you deployed the Apps Script in your sheet, paste your deployed <strong>Web App URL</strong> below. Whenever you add a topic in the dashboard, it writes directly into your Google Sheet's <strong>"Topic Breakdown"</strong> tab in real time!
+              </p>
+              <input
+                type="url"
+                placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 placeholder:text-slate-400 font-mono"
+              />
             </div>
 
             {/* Live Sync Configuration Box */}

@@ -1,7 +1,8 @@
-import { DashboardData } from '../types';
+import { DashboardData, WorkItem, DeliverableSubItem, SyncSettings } from '../types';
 
 const STORAGE_KEY = 'vzone_marketing_dashboard_data_v1';
 const STORAGE_META_KEY = 'vzone_marketing_dashboard_meta_v1';
+const TOPICS_BACKUP_KEY = 'vzone_marketing_dashboard_topics_backup_v1';
 
 export interface StorageMeta {
   savedAt: string;
@@ -85,8 +86,6 @@ export function hasSavedDataInStorage(): boolean {
 
 const STORAGE_SYNC_KEY = 'vzone_marketing_dashboard_sync_v1';
 
-import { SyncSettings } from '../types';
-
 export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   autoSync: true,
   interval: '1m',
@@ -110,4 +109,83 @@ export function loadSyncSettingsFromStorage(): SyncSettings {
     console.error('Failed to load sync settings from localStorage:', e);
   }
   return DEFAULT_SYNC_SETTINGS;
+}
+
+/**
+ * Saves a dedicated, resilient topics backup in localStorage
+ */
+export function saveTopicsBackup(works: WorkItem[]): void {
+  try {
+    const backup: Record<
+      string,
+      { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
+    > = {};
+    for (const w of works) {
+      if (
+        (w.subItems && w.subItems.length > 0) ||
+        (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0)
+      ) {
+        backup[w.activity.trim().toLowerCase()] = {
+          subItems: w.subItems,
+          monthlySubItems: w.monthlySubItems,
+        };
+      }
+    }
+    localStorage.setItem(TOPICS_BACKUP_KEY, JSON.stringify(backup));
+  } catch (e) {
+    console.error('Failed to save topics backup:', e);
+  }
+}
+
+/**
+ * Restores any topics from the backup if a sync or cloud load omitted them
+ */
+export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
+  try {
+    const raw = localStorage.getItem(TOPICS_BACKUP_KEY);
+    if (!raw) return works;
+    const backup: Record<
+      string,
+      { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
+    > = JSON.parse(raw);
+
+    return works.map((w) => {
+      const saved = backup[w.activity.trim().toLowerCase()];
+      if (!saved) return w;
+
+      const mergedMonthly: Record<string, DeliverableSubItem[]> = {
+        ...(saved.monthlySubItems || {}),
+        ...(w.monthlySubItems || {}),
+      };
+
+      if (saved.monthlySubItems) {
+        for (const [m, list] of Object.entries(saved.monthlySubItems)) {
+          const current = mergedMonthly[m] || [];
+          const seen = new Set(current.map((i) => i.id));
+          const combined = [...current];
+          for (const it of list || []) {
+            if (!seen.has(it.id)) {
+              seen.add(it.id);
+              combined.push(it);
+            }
+          }
+          mergedMonthly[m] = combined;
+        }
+      }
+
+      const activeSub =
+        w.subItems && w.subItems.length > 0
+          ? w.subItems
+          : saved.subItems || [];
+
+      return {
+        ...w,
+        subItems: activeSub,
+        monthlySubItems: mergedMonthly,
+      };
+    });
+  } catch (e) {
+    console.error('Failed to restore topics backup:', e);
+    return works;
+  }
 }
