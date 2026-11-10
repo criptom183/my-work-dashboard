@@ -260,7 +260,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
           <div className="flex items-center gap-1.5">
             <ListTree className="w-3.5 h-3.5 text-indigo-600" />
             <span className="text-xs font-bold text-slate-800">
-              Topics & Sub-Categories
+              More Details &amp; Breakdown
             </span>
             <span className="text-[10px] font-semibold text-slate-400">
               ({subList.length} recorded • Target: {item.count})
@@ -274,10 +274,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 onClick={onSyncAllTopics}
                 disabled={isSyncingAllTopics}
                 className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 inline-flex items-center gap-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-colors"
-                title="Sync all dashboard topics into your Google Sheet"
+                title="Sync all dashboard details into your Google Sheet"
               >
                 <UploadCloud className="w-2.5 h-2.5 text-indigo-600" />
-                <span>Sync to Sheet</span>
+                <span>Sync Details to Sheet</span>
               </button>
             )}
             {!isViewOnly && onExportSubItemsSheet && (
@@ -285,7 +285,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 type="button"
                 onClick={onExportSubItemsSheet}
                 className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1 hover:underline cursor-pointer"
-                title="Autosave and download Google Sheet tab with all topics"
+                title="Autosave and download Google Sheet tab with all details"
               >
                 <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                 <span>Export Sheet Tab</span>
@@ -324,7 +324,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             prev ? { ...prev, title: e.target.value } : null
                           )
                         }
-                        placeholder="Topic title..."
+                        placeholder="Detail title..."
                         className="flex-1 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
                         autoFocus
                       />
@@ -395,7 +395,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             })
                           }
                           className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
-                          title="Edit topic"
+                          title="Edit detail"
                         >
                           <Edit2 className="w-3 h-3" />
                         </button>
@@ -405,7 +405,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                           type="button"
                           onClick={() => onDeleteSubItem(item.id, sub.id)}
                           className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
-                          title="Delete topic"
+                          title="Delete detail"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -418,11 +418,11 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
           </div>
         ) : (
           <p className="text-xs text-slate-400 italic py-1">
-            No topics entered yet for this deliverable. You can add them one by one below.
+            No extra details entered yet for this deliverable. You can add them one by one below.
           </p>
         )}
 
-        {/* Inline Add Topic form */}
+        {/* Inline Add Detail form */}
         {isAdding && (
           <form
             onSubmit={(e) => handleAddSubTopic(e, item.id)}
@@ -434,7 +434,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 required
                 value={topicDrafts[item.id]?.title || ''}
                 onChange={(e) => updateDraftTitle(item.id, e.target.value)}
-                placeholder={`Topic #${subList.length + 1} title (e.g. Fuel Monitoring Video)...`}
+                placeholder={`Detail #${subList.length + 1} (e.g. concept, title, work item)...`}
                 className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
               />
               <input
@@ -449,7 +449,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer shrink-0 shadow-2xs"
               >
                 <Plus className="w-3 h-3" />
-                <span>Add topic</span>
+                <span>Add detail</span>
               </button>
             </div>
           </form>
@@ -492,7 +492,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 type="button"
                 onClick={onExportSubItemsSheet}
                 className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
-                title="Export Topic Breakdown tab for Google Sheets"
+                title="Export Details Breakdown tab for Google Sheets"
               >
                 <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                 <span>Export Sheet Tab</span>
@@ -505,10 +505,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 onClick={onSyncAllTopics}
                 disabled={isSyncingAllTopics}
                 className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
-                title="Push all previously added topics to your Google Sheet now"
+                title="Push all previously added details to your Google Sheet now"
               >
                 <UploadCloud className={`w-3 h-3 ${isSyncingAllTopics ? 'animate-spin' : ''}`} />
-                <span>{isSyncingAllTopics ? 'Syncing...' : 'Sync All Topics to Sheet'}</span>
+                <span>{isSyncingAllTopics ? 'Syncing...' : 'Sync All Details to Sheet'}</span>
               </button>
             )}
 
@@ -692,7 +692,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                                 ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300'
                                 : 'hidden'
                             }`}
-                            title={isExpanded ? 'Collapse topic breakdown' : 'Expand topic breakdown'}
+                            title={isExpanded ? 'Collapse details breakdown' : 'Expand details breakdown'}
                           >
                             <ListTree className={`w-3.5 h-3.5 ${
                               isExpanded || (item.subItems && item.subItems.length > 0)
@@ -701,8 +701,8 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             }`} />
                             <span>
                               {item.subItems && item.subItems.length > 0
-                                ? `${item.subItems.length} ${item.subItems.length === 1 ? 'Topic' : 'Topics'}`
-                                : '+ Add Topics'}
+                                ? `More Details (${item.subItems.length})`
+                                : '+ More Details'}
                             </span>
                             {isExpanded ? (
                               <ChevronDown className="w-3.5 h-3.5 opacity-90" />
@@ -1007,7 +1007,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                                 ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300'
                                 : 'hidden'
                             }`}
-                            title={isExpanded ? 'Collapse topics' : 'Expand topics'}
+                            title={isExpanded ? 'Collapse details' : 'Expand details'}
                           >
                             <ListTree className={`w-3.5 h-3.5 ${
                               isExpanded || (w.subItems && w.subItems.length > 0)
@@ -1016,8 +1016,8 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             }`} />
                             <span>
                               {w.subItems && w.subItems.length > 0
-                                ? `${w.subItems.length} ${w.subItems.length === 1 ? 'Topic' : 'Topics'}`
-                                : '+ Add Topics'}
+                                ? `More Details (${w.subItems.length})`
+                                : '+ More Details'}
                             </span>
                             {isExpanded ? (
                               <ChevronDown className="w-3.5 h-3.5 opacity-90" />

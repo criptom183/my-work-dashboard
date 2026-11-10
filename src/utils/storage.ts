@@ -112,25 +112,76 @@ export function loadSyncSettingsFromStorage(): SyncSettings {
 }
 
 /**
- * Saves a dedicated, resilient topics backup in localStorage
+ * Retrieve the current raw topics/details backup dictionary
+ */
+export function getTopicsBackup(): Record<
+  string,
+  { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
+> {
+  try {
+    const raw = localStorage.getItem(TOPICS_BACKUP_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Saves a dedicated, resilient topics/details backup in localStorage.
+ * Crucially, this NEVER wipes previously saved items or drops existing details!
  */
 export function saveTopicsBackup(works: WorkItem[]): void {
   try {
     const backup: Record<
       string,
       { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
-    > = {};
+    > = getTopicsBackup();
+
     for (const w of works) {
-      if (
-        (w.subItems && w.subItems.length > 0) ||
-        (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0)
-      ) {
-        backup[w.activity.trim().toLowerCase()] = {
-          subItems: w.subItems,
-          monthlySubItems: w.monthlySubItems,
+      const key = w.activity.trim().toLowerCase();
+      const existing = backup[key] || {};
+
+      const mergedMonthly: Record<string, DeliverableSubItem[]> = {
+        ...(existing.monthlySubItems || {}),
+        ...(w.monthlySubItems || {}),
+      };
+
+      // Union by sub-item ID so no item is ever lost
+      if (existing.monthlySubItems && w.monthlySubItems) {
+        for (const [m, list] of Object.entries(w.monthlySubItems)) {
+          const oldList = existing.monthlySubItems[m] || [];
+          const seen = new Set((list || []).map((i) => i.id));
+          const combined = [...(list || [])];
+          for (const item of oldList) {
+            if (!seen.has(item.id)) {
+              combined.push(item);
+              seen.add(item.id);
+            }
+          }
+          mergedMonthly[m] = combined;
+        }
+      }
+
+      // Merge root subItems
+      const oldSub = existing.subItems || [];
+      const newSub = w.subItems || [];
+      const seenRoot = new Set(newSub.map((i) => i.id));
+      const combinedSub = [...newSub];
+      for (const item of oldSub) {
+        if (!seenRoot.has(item.id)) {
+          combinedSub.push(item);
+          seenRoot.add(item.id);
+        }
+      }
+
+      if (combinedSub.length > 0 || Object.keys(mergedMonthly).length > 0) {
+        backup[key] = {
+          subItems: combinedSub,
+          monthlySubItems: mergedMonthly,
         };
       }
     }
+
     localStorage.setItem(TOPICS_BACKUP_KEY, JSON.stringify(backup));
   } catch (e) {
     console.error('Failed to save topics backup:', e);
@@ -138,19 +189,44 @@ export function saveTopicsBackup(works: WorkItem[]): void {
 }
 
 /**
- * Restores any topics from the backup if a sync or cloud load omitted them
+ * Explicitly removes a sub-item from persistent backup when user intentionally clicks delete.
+ */
+export function removeSubItemFromBackup(
+  activity: string,
+  targetMonth: string,
+  subItemId: string
+): void {
+  try {
+    const backup = getTopicsBackup();
+    const key = activity.trim().toLowerCase();
+    const entry = backup[key];
+    if (!entry) return;
+
+    if (entry.monthlySubItems && entry.monthlySubItems[targetMonth]) {
+      entry.monthlySubItems[targetMonth] = entry.monthlySubItems[targetMonth].filter(
+        (i) => i.id !== subItemId
+      );
+    }
+    if (entry.subItems) {
+      entry.subItems = entry.subItems.filter((i) => i.id !== subItemId);
+    }
+    localStorage.setItem(TOPICS_BACKUP_KEY, JSON.stringify(backup));
+  } catch (e) {
+    console.error('Failed to remove sub item from backup:', e);
+  }
+}
+
+/**
+ * Restores any topics/details from the backup if a sync, sheet reload, or cloud update omitted them.
  */
 export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
   try {
-    const raw = localStorage.getItem(TOPICS_BACKUP_KEY);
-    if (!raw) return works;
-    const backup: Record<
-      string,
-      { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
-    > = JSON.parse(raw);
+    const backup = getTopicsBackup();
+    if (!backup || Object.keys(backup).length === 0) return works;
 
     return works.map((w) => {
-      const saved = backup[w.activity.trim().toLowerCase()];
+      const key = w.activity.trim().toLowerCase();
+      const saved = backup[key];
       if (!saved) return w;
 
       const mergedMonthly: Record<string, DeliverableSubItem[]> = {
@@ -173,10 +249,15 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
         }
       }
 
-      const activeSub =
-        w.subItems && w.subItems.length > 0
-          ? w.subItems
-          : saved.subItems || [];
+      // Resolve active subItems for this deliverable's target month
+      let activeSub: DeliverableSubItem[] = [];
+      if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
+        activeSub = mergedMonthly[w.month];
+      } else if (w.subItems && w.subItems.length > 0) {
+        activeSub = w.subItems;
+      } else if (saved.subItems && saved.subItems.length > 0) {
+        activeSub = saved.subItems;
+      }
 
       return {
         ...w,

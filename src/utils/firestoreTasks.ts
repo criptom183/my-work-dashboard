@@ -249,3 +249,63 @@ export function subscribeToSharedDashboardData(
   }
 }
 
+export interface StoredDeliverableDetail {
+  id: string;
+  activity: string;
+  month: string;
+  title: string;
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/**
+ * Save all deliverable details to dedicated Firestore config/deliverable_details document
+ * This acts as a permanent, immutable details vault that Google Sheet re-syncs can never erase!
+ */
+export async function saveDeliverableDetailsToFirestore(
+  details: Record<string, StoredDeliverableDetail>
+): Promise<void> {
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'deliverable_details');
+    await setDoc(
+      ref,
+      {
+        details,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Failed to save deliverable_details to Firestore:', err);
+  }
+}
+
+/**
+ * Subscribe to dedicated deliverable_details in Firestore in real time.
+ */
+export function subscribeToDeliverableDetails(
+  onDetailsUpdated: (details: Record<string, StoredDeliverableDetail>) => void
+): () => void {
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'deliverable_details');
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data();
+          if (raw && raw.details && typeof raw.details === 'object') {
+            onDetailsUpdated(raw.details);
+          }
+        }
+      },
+      (error) => {
+        console.warn('Firestore deliverable_details subscription error:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('Failed to subscribe to deliverable_details:', err);
+    return () => {};
+  }
+}
+

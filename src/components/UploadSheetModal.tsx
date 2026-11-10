@@ -158,7 +158,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
     onUpdateSyncSettings(newSettings);
     setTestResult({
       message: cleanUrl
-        ? 'Autosave Web App URL saved! New topics will write to your Google Sheet automatically.'
+        ? 'Autosave Web App URL saved! New details will write to your Google Sheet automatically.'
         : 'Web App URL cleared.',
     });
   };
@@ -279,13 +279,13 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
 
     if (items.length === 0) {
       setTestResult({
-        message: 'No sub-category topics found in the dashboard yet. Expand any deliverable and add topics first, or click "Send Test Row".',
+        message: 'No deliverable details found in the dashboard yet. Expand any deliverable and add details first, or click "Send Test Row".',
         isError: true,
       });
       return;
     }
 
-    // Filter out topics that have already been synced
+    // Filter out details that have already been synced
     const syncedKeys = getSyncedTopicKeys();
     const newItems = items.filter(
       (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
@@ -293,7 +293,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
 
     if (newItems.length === 0) {
       setTestResult({
-        message: 'All topics are already synced in your Google Sheet! No duplicates were added.',
+        message: 'All details are already synced in your Google Sheet! No duplicates were added.',
       });
       return;
     }
@@ -309,7 +309,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
 
       const newlySyncedKeys: string[] = [];
 
-      // Send each new topic row-by-row with verified addTopic action
+      // Send each new detail row-by-row with verified addTopic action
       for (let i = 0; i < newItems.length; i++) {
         const item = newItems[i];
         const queryParams = new URLSearchParams({
@@ -350,11 +350,11 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       markTopicsAsSynced(newlySyncedKeys);
 
       setTestResult({
-        message: `✅ Pushed ${newItems.length} new topics into your Google Sheet "Topic Breakdown" tab! (${items.length - newItems.length} were already synced, skipping duplicates).`,
+        message: `✅ Pushed ${newItems.length} new details into your Google Sheet "Topic Breakdown" tab! (${items.length - newItems.length} were already synced, skipping duplicates).`,
       });
     } catch (err: any) {
       setTestResult({
-        message: `Sent update of ${newItems.length} topics. Please check your Google Sheet.`,
+        message: `Sent update of ${newItems.length} details. Please check your Google Sheet.`,
       });
     } finally {
       setIsBulkSyncing(false);
@@ -449,7 +449,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
                 Google Sheet Sync & Autosave
               </h3>
               <p className="text-xs text-slate-500">
-                Connect live Google Sheet & enable automatic topic writing into your sheet
+                Connect live Google Sheet & enable automatic detail writing into your sheet
               </p>
             </div>
           </div>
@@ -578,7 +578,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
                 </div>
 
                 <p className="text-[11px] text-indigo-900/80 leading-relaxed">
-                  Whenever you add a topic under any deliverable (e.g. <em>Reels Video</em>), it automatically saves into a new tab named <strong>"Topic Breakdown"</strong> in your Google Sheet in real time.
+                  Whenever you add details under any deliverable (e.g. <em>Reels Video</em>), it automatically saves into a new tab named <strong>"Topic Breakdown"</strong> in your Google Sheet in real time.
                 </p>
 
                 {/* Web App URL input and actions */}
@@ -613,7 +613,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
                     </div>
                   )}
 
-                  {/* Action buttons: Send Test Row & Push All Topics */}
+                  {/* Action buttons: Send Test Row & Push All Details */}
                   {webhookUrl && !isSheetLinkPastedInWebhook && (
                     <div className="flex items-center gap-2 pt-1 flex-wrap">
                       <button
@@ -634,7 +634,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
                         >
                           <Send className={`w-3.5 h-3.5 ${isBulkSyncing ? 'animate-spin' : ''}`} />
-                          <span>{isBulkSyncing ? 'Pushing...' : `Push All Dashboard Topics (${totalTopicsCount})`}</span>
+                          <span>{isBulkSyncing ? 'Pushing...' : `Push All Dashboard Details (${totalTopicsCount})`}</span>
                         </button>
                       )}
                     </div>

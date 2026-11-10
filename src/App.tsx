@@ -25,6 +25,7 @@ import {
   loadSyncSettingsFromStorage,
   saveSyncSettingsToStorage,
   saveTopicsBackup,
+  removeSubItemFromBackup,
   restoreTopicsFromBackup,
   buildTopicSyncKey,
   getSyncedTopicKeys,
@@ -45,6 +46,8 @@ import {
   saveSharedSheetUrl,
   saveSharedDashboardData,
   subscribeToSharedDashboardData,
+  saveDeliverableDetailsToFirestore,
+  subscribeToDeliverableDetails,
 } from './utils/firestoreTasks';
 import {
   RefreshCw,
@@ -234,27 +237,55 @@ export default function App() {
       try {
         const freshData = await fetchAndParseGoogleSheet(currentUrl);
 
-        // Preserve all user-added notes (task notes, work list notes, custom item notes)
+        // Preserve all user-added notes, details, and deliverables created in dashboard
         const existingByActivity = new Map<string, WorkItem>();
         for (const w of dataRef.current.worksCompleted || []) {
           existingByActivity.set(w.activity.trim().toLowerCase(), w);
         }
 
-        const mergedWorks = restoreTopicsFromBackup(
-          (freshData.worksCompleted || []).map((w) => {
-            const match = existingByActivity.get(w.activity.trim().toLowerCase());
-            if (match) {
-              return {
-                ...w,
-                customNote: w.customNote || match.customNote,
-                monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-                subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
-                monthlySubItems: { ...(match.monthlySubItems || {}), ...(w.monthlySubItems || {}) },
-              };
-            }
-            return w;
-          })
+        const freshActivities = new Set(
+          (freshData.worksCompleted || []).map((w) => w.activity.trim().toLowerCase())
         );
+
+        // Keep any deliverables added in the dashboard that aren't in the raw sheet
+        const extraExistingWorks = (dataRef.current.worksCompleted || []).filter(
+          (w) => !freshActivities.has(w.activity.trim().toLowerCase())
+        );
+
+        const updatedFreshWorks = (freshData.worksCompleted || []).map((w) => {
+          const match = existingByActivity.get(w.activity.trim().toLowerCase());
+          if (match) {
+            // Merge monthly sub items without dropping anything
+            const mergedMonthly: Record<string, DeliverableSubItem[]> = {
+              ...(match.monthlySubItems || {}),
+              ...(w.monthlySubItems || {}),
+            };
+
+            for (const [m, list] of Object.entries(match.monthlySubItems || {})) {
+              const current = mergedMonthly[m] || [];
+              const seen = new Set(current.map((i) => i.id));
+              const combined = [...current];
+              for (const it of list || []) {
+                if (!seen.has(it.id)) {
+                  seen.add(it.id);
+                  combined.push(it);
+                }
+              }
+              mergedMonthly[m] = combined;
+            }
+
+            return {
+              ...w,
+              customNote: w.customNote || match.customNote,
+              monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+              subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
+              monthlySubItems: mergedMonthly,
+            };
+          }
+          return w;
+        });
+
+        const mergedWorks = restoreTopicsFromBackup([...updatedFreshWorks, ...extraExistingWorks]);
         saveTopicsBackup(mergedWorks);
 
         const mergedNotes = {
@@ -371,12 +402,40 @@ export default function App() {
           const mergedWorks = restoreTopicsFromBackup(
             cloudDashboard.worksCompleted.map((w) => {
               const match = existingByActivity.get(w.activity.trim().toLowerCase());
+              // Non-destructive union of monthly sub items
+              const mergedMonthly: Record<string, DeliverableSubItem[]> = {
+                ...(match?.monthlySubItems || {}),
+                ...(w.monthlySubItems || {}),
+              };
+
+              for (const [m, list] of Object.entries(match?.monthlySubItems || {})) {
+                const cloudList = mergedMonthly[m] || [];
+                const seen = new Set(cloudList.map((i) => i.id));
+                const combined = [...cloudList];
+                for (const it of list || []) {
+                  if (!seen.has(it.id)) {
+                    combined.push(it);
+                    seen.add(it.id);
+                  }
+                }
+                mergedMonthly[m] = combined;
+              }
+
+              let activeSub: DeliverableSubItem[] = [];
+              if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
+                activeSub = mergedMonthly[w.month];
+              } else if (w.subItems && w.subItems.length > 0) {
+                activeSub = w.subItems;
+              } else if (match?.subItems && match.subItems.length > 0) {
+                activeSub = match.subItems;
+              }
+
               return {
                 ...w,
                 customNote: w.customNote || match?.customNote,
                 monthlyNotes: { ...(match?.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-                subItems: (w.subItems && w.subItems.length > 0) ? w.subItems : match?.subItems,
-                monthlySubItems: { ...(match?.monthlySubItems || {}), ...(w.monthlySubItems || {}) },
+                subItems: activeSub,
+                monthlySubItems: mergedMonthly,
               };
             })
           );
@@ -400,10 +459,67 @@ export default function App() {
       }
     });
 
+    // 4. Subscribe to dedicated deliverable details vault from Firestore
+    const unsubDetails = subscribeToDeliverableDetails((detailsMap) => {
+      if (detailsMap && Object.keys(detailsMap).length > 0) {
+        setData((prev) => {
+          let hasChanges = false;
+          const updatedWorks = prev.worksCompleted.map((w) => {
+            const actKey = w.activity.trim().toLowerCase();
+            const relevant = Object.values(detailsMap).filter(
+              (d) => d.activity.trim().toLowerCase() === actKey
+            );
+            if (relevant.length === 0) return w;
+
+            const monthlySub = { ...(w.monthlySubItems || {}) };
+            for (const item of relevant) {
+              const mName = item.month || 'Nov 2026';
+              const currentList = monthlySub[mName] ? [...monthlySub[mName]] : [];
+              const idx = currentList.findIndex((it) => it.id === item.id);
+              if (idx >= 0) {
+                if (currentList[idx].title !== item.title || currentList[idx].note !== item.note) {
+                  currentList[idx] = {
+                    id: item.id,
+                    title: item.title,
+                    note: item.note,
+                    createdAt: item.createdAt,
+                  };
+                  hasChanges = true;
+                }
+              } else {
+                currentList.push({
+                  id: item.id,
+                  title: item.title,
+                  note: item.note,
+                  createdAt: item.createdAt,
+                });
+                hasChanges = true;
+              }
+              monthlySub[mName] = currentList;
+            }
+
+            return {
+              ...w,
+              monthlySubItems: monthlySub,
+            };
+          });
+
+          if (!hasChanges) return prev;
+          const restored = restoreTopicsFromBackup(updatedWorks);
+          saveTopicsBackup(restored);
+          return {
+            ...prev,
+            worksCompleted: restored,
+          };
+        });
+      }
+    });
+
     return () => {
       unsubTasks();
       unsubSheetUrl();
       unsubDashboard();
+      unsubDetails();
     };
   }, [handleSyncGoogleSheet]);
 
@@ -426,8 +542,8 @@ export default function App() {
         worksCompleted: restoredWorks,
       };
 
-      // If loaded cache has older version (< 15 deliverables), upgrade to the new template
-      if (!loaded.data.worksCompleted || loaded.data.worksCompleted.length < 15) {
+      // If loaded cache has no deliverables, use the initial template
+      if (!loaded.data.worksCompleted || loaded.data.worksCompleted.length === 0) {
         const upgraded = {
           ...initialDashboardData,
           workListNotes: loaded.data.workListNotes || {},
@@ -672,17 +788,31 @@ export default function App() {
 
     setIsSavedInStorage(true);
 
+    const deliverableName =
+      dataRef.current.worksCompleted.find(
+        (w) =>
+          w.id === cleanId ||
+          w.id === workItemId ||
+          w.id.replace(/^all-/, '') === cleanId ||
+          w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+      )?.activity || workItemId;
+
+    // Save to dedicated Firestore details vault (guaranteed persistence across all reloads & sheet syncs)
+    saveDeliverableDetailsToFirestore({
+      [newSubItem.id]: {
+        id: newSubItem.id,
+        activity: deliverableName,
+        month: targetMonth,
+        title: newSubItem.title,
+        note: newSubItem.note,
+        createdAt: newSubItem.createdAt,
+        updatedAt: new Date().toISOString(),
+      },
+    }).catch(console.warn);
+
     // If user configured a Google Apps Script Web App URL, post directly to their Google Sheet in background
     if (syncSettingsRef.current?.webhookUrl) {
       try {
-        const deliverableName =
-          dataRef.current.worksCompleted.find(
-            (w) =>
-              w.id === cleanId ||
-              w.id === workItemId ||
-              w.id.replace(/^all-/, '') === cleanId ||
-              w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
-          )?.activity || workItemId;
 
         const webhookPayload = JSON.stringify({
           action: 'addTopic',
@@ -720,14 +850,14 @@ export default function App() {
         });
 
         markTopicsAsSynced([buildTopicSyncKey(deliverableName, targetMonth, title)]);
-        showToast(`Topic "${title}" added & autosaved to Google Sheet!`);
+        showToast(`Detail "${title}" added & autosaved to Google Sheet!`);
         return;
       } catch (e) {
         console.warn('Google Sheet webhook dispatch error:', e);
       }
     }
 
-    showToast(`Topic "${title}" added & saved!`);
+    showToast(`Detail "${title}" added & saved!`);
   };
 
   const handleUpdateSubItem = (
@@ -787,13 +917,48 @@ export default function App() {
     });
 
     setIsSavedInStorage(true);
-    showToast('Topic updated & autosaved!');
+
+    const deliverableName =
+      dataRef.current.worksCompleted.find(
+        (w) =>
+          w.id === cleanId ||
+          w.id === workItemId ||
+          w.id.replace(/^all-/, '') === cleanId ||
+          w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+      )?.activity || workItemId;
+
+    if (updates.title) {
+      saveDeliverableDetailsToFirestore({
+        [subItemId]: {
+          id: subItemId,
+          activity: deliverableName,
+          month: targetMonth,
+          title: updates.title,
+          note: updates.note,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }).catch(console.warn);
+    }
+
+    showToast('Detail updated & autosaved!');
   };
 
   const handleDeleteSubItem = (workItemId: string, subItemId: string) => {
     if (isViewOnly) return;
     const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
     const cleanId = workItemId.replace(/^all-/, '');
+
+    const deliverableName =
+      dataRef.current.worksCompleted.find(
+        (w) =>
+          w.id === cleanId ||
+          w.id === workItemId ||
+          w.id.replace(/^all-/, '') === cleanId ||
+          w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+      )?.activity || workItemId;
+
+    removeSubItemFromBackup(deliverableName, targetMonth, subItemId);
 
     setData((prev) => {
       const updatedWorks = prev.worksCompleted.map((w) => {
@@ -834,7 +999,7 @@ export default function App() {
     });
 
     setIsSavedInStorage(true);
-    showToast('Topic removed.');
+    showToast('Detail removed.');
   };
 
   const [isSyncingAllTopics, setIsSyncingAllTopics] = useState(false);
@@ -882,24 +1047,24 @@ export default function App() {
     }
 
     if (items.length === 0) {
-      showToast('No topics found in the dashboard yet. Expand any deliverable to add topics first.', 'info');
+      showToast('No extra details found in the dashboard yet. Expand any deliverable to add details first.', 'info');
       return;
     }
 
-    // Filter out topics that have already been synced to Google Sheet
+    // Filter out topics/details that have already been synced to Google Sheet
     const syncedKeys = getSyncedTopicKeys();
     const newItems = items.filter(
       (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
     );
 
     if (newItems.length === 0) {
-      showToast('All topics are already synced in your Google Sheet! No duplicates added.', 'info');
+      showToast('All details are already synced in your Google Sheet! No duplicates added.', 'info');
       return;
     }
 
     setIsSyncingAllTopics(true);
     showToast(
-      `Syncing ${newItems.length} new topic(s) to your Google Sheet... (${items.length - newItems.length} already synced)`,
+      `Syncing ${newItems.length} new detail(s) to your Google Sheet... (${items.length - newItems.length} already synced)`,
       'info'
     );
 
@@ -945,10 +1110,10 @@ export default function App() {
       }
 
       markTopicsAsSynced(newlySyncedKeys);
-      showToast(`Successfully added ${newItems.length} new topic(s) into your Google Sheet!`);
+      showToast(`Successfully added ${newItems.length} new detail(s) into your Google Sheet!`);
     } catch (err) {
-      console.error('Error syncing all topics to Google Sheet:', err);
-      showToast('Sent topics to Google Sheet. Please check your sheet.', 'info');
+      console.error('Error syncing all details to Google Sheet:', err);
+      showToast('Sent details to Google Sheet. Please check your sheet.', 'info');
     } finally {
       setIsSyncingAllTopics(false);
     }
@@ -956,7 +1121,7 @@ export default function App() {
 
   const handleExportSubItemsSheet = () => {
     downloadWorkbookWithSubItemsTab(data, selectedMonth);
-    showToast('Downloaded Google Sheets workbook with Topic Breakdown tab!');
+    showToast('Downloaded Google Sheets workbook with Details Breakdown tab!');
   };
 
   const handleExportCsv = () => {
@@ -995,21 +1160,45 @@ export default function App() {
       existingByActivity.set(w.activity.trim().toLowerCase(), w);
     }
 
-    const mergedWorks = restoreTopicsFromBackup(
-      (newData.worksCompleted || []).map((w) => {
-        const match = existingByActivity.get(w.activity.trim().toLowerCase());
-        if (match) {
-          return {
-            ...w,
-            customNote: w.customNote || match.customNote,
-            monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-            subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
-            monthlySubItems: { ...(match.monthlySubItems || {}), ...(w.monthlySubItems || {}) },
-          };
-        }
-        return w;
-      })
+    const newActivities = new Set(
+      (newData.worksCompleted || []).map((w) => w.activity.trim().toLowerCase())
     );
+    const extraExistingWorks = (dataRef.current.worksCompleted || []).filter(
+      (w) => !newActivities.has(w.activity.trim().toLowerCase())
+    );
+
+    const updatedNewWorks = (newData.worksCompleted || []).map((w) => {
+      const match = existingByActivity.get(w.activity.trim().toLowerCase());
+      if (match) {
+        const mergedMonthly: Record<string, DeliverableSubItem[]> = {
+          ...(match.monthlySubItems || {}),
+          ...(w.monthlySubItems || {}),
+        };
+        for (const [m, list] of Object.entries(match.monthlySubItems || {})) {
+          const current = mergedMonthly[m] || [];
+          const seen = new Set(current.map((i) => i.id));
+          const combined = [...current];
+          for (const it of list || []) {
+            if (!seen.has(it.id)) {
+              combined.push(it);
+              seen.add(it.id);
+            }
+          }
+          mergedMonthly[m] = combined;
+        }
+
+        return {
+          ...w,
+          customNote: w.customNote || match.customNote,
+          monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
+          subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
+          monthlySubItems: mergedMonthly,
+        };
+      }
+      return w;
+    });
+
+    const mergedWorks = restoreTopicsFromBackup([...updatedNewWorks, ...extraExistingWorks]);
     saveTopicsBackup(mergedWorks);
 
     const mergedData: DashboardData = {
