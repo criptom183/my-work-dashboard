@@ -374,11 +374,22 @@ export function getWorksForSelectedMonth(
           allSub = [...w.subItems];
         }
 
+        let resolvedAllNote = w.customNote;
+        if (!resolvedAllNote && w.monthlyNotes) {
+          const nonEmptyNotes = Object.values(w.monthlyNotes).filter(
+            (n) => typeof n === 'string' && n.trim().length > 0
+          );
+          if (nonEmptyNotes.length > 0) {
+            resolvedAllNote = nonEmptyNotes[nonEmptyNotes.length - 1];
+          }
+        }
+
         map.set(key, {
           ...w,
           id: `all-${w.id}`,
           count: total,
           month: 'All Months',
+          customNote: resolvedAllNote,
           monthlyBreakdown: breakdown,
           subItems: allSub,
         });
@@ -404,6 +415,21 @@ export function getWorksForSelectedMonth(
           }
         } else {
           existing.count += w.count;
+        }
+
+        if (!existing.customNote && w.customNote) {
+          existing.customNote = w.customNote;
+        }
+        if (w.monthlyNotes) {
+          existing.monthlyNotes = { ...(existing.monthlyNotes || {}), ...w.monthlyNotes };
+          if (!existing.customNote) {
+            const nonEmpty = Object.values(existing.monthlyNotes).filter(
+              (n) => typeof n === 'string' && n.trim().length > 0
+            );
+            if (nonEmpty.length > 0) {
+              existing.customNote = nonEmpty[nonEmpty.length - 1];
+            }
+          }
         }
 
         if (w.monthlySubItems) {
@@ -459,17 +485,22 @@ export function getWorksForSelectedMonth(
         monthCount = w.count;
       }
 
-      // Month-specific note resolution: notes must only appear in the specific month they were created for
+      // Month-specific note resolution: check monthlyNotes first, and fall back to customNote if not found
       let resolvedCustomNote: string | undefined = undefined;
-      if (w.monthlyNotes) {
+      let foundMonthlyNoteKey = false;
+      if (w.monthlyNotes && typeof w.monthlyNotes === 'object') {
         for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
           if (isSameMonth(m, selectedMonth)) {
-            resolvedCustomNote = noteText;
+            foundMonthlyNoteKey = true;
+            resolvedCustomNote = noteText && noteText.trim() ? noteText.trim() : undefined;
             break;
           }
         }
-      } else if (w.month && isSameMonth(w.month, selectedMonth)) {
-        resolvedCustomNote = w.customNote;
+      }
+      if (!foundMonthlyNoteKey && w.customNote && w.customNote.trim()) {
+        if (!w.month || isSameMonth(w.month, selectedMonth)) {
+          resolvedCustomNote = w.customNote.trim();
+        }
       }
 
       // Month-specific sub-items / topics resolution

@@ -415,4 +415,75 @@ export function subscribeToSharedSyncedTopics(
   }
 }
 
+export interface StoredDeliverableNote {
+  activity: string;
+  customNote?: string;
+  monthlyNotes?: Record<string, string>;
+  notes?: string;
+  updatedAt: string;
+}
+
+/**
+ * Save deliverable notes (customNote, monthlyNotes, notes) and section workListNotes
+ * to a dedicated Firestore config/deliverable_notes document so Google Sheet syncs can never erase them.
+ */
+export async function saveDeliverableNotesToFirestore(
+  itemNotes: Record<string, StoredDeliverableNote>,
+  workListNotes?: Record<string, string>
+): Promise<void> {
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'deliverable_notes');
+    const payload: Record<string, any> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (itemNotes && Object.keys(itemNotes).length > 0) {
+      payload.itemNotes = JSON.parse(JSON.stringify(itemNotes));
+    }
+    if (workListNotes && Object.keys(workListNotes).length > 0) {
+      payload.workListNotes = JSON.parse(JSON.stringify(workListNotes));
+    }
+    await setDoc(ref, payload, { merge: true });
+  } catch (err) {
+    console.warn('Failed to save deliverable_notes to Firestore:', err);
+  }
+}
+
+/**
+ * Subscribe to dedicated deliverable_notes in Firestore in real time across all devices.
+ */
+export function subscribeToDeliverableNotes(
+  onNotesUpdated: (payload: {
+    itemNotes: Record<string, StoredDeliverableNote>;
+    workListNotes: Record<string, string>;
+  }) => void
+): () => void {
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'deliverable_notes');
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data();
+          if (raw && typeof raw === 'object') {
+            onNotesUpdated({
+              itemNotes:
+                raw.itemNotes && typeof raw.itemNotes === 'object' ? raw.itemNotes : {},
+              workListNotes:
+                raw.workListNotes && typeof raw.workListNotes === 'object'
+                  ? raw.workListNotes
+                  : {},
+            });
+          }
+        }
+      },
+      (error) => {
+        console.warn('Firestore deliverable_notes subscription error:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('Failed to subscribe to deliverable_notes:', err);
+    return () => {};
+  }
+}
+
 

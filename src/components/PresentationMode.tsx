@@ -216,9 +216,9 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
 
   // Stepper labels
   const steps = [
-    { id: 0, label: '01 Executive overview' },
+    { id: 0, label: '01 Overview' },
     { id: 1, label: '02 Work streams & deliverables' },
-    { id: 2, label: '03 Action plan' },
+    { id: 2, label: '03 Active tasks' },
   ];
 
   // SVG Donut calculation
@@ -705,8 +705,17 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                           <div className="min-w-0 flex-1">
                             <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
                             <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-400">
-                              {w.customNote && <span>{w.customNote}</span>}
-                              {w.customNote && subItems.length > 0 && <span>·</span>}
+                              {w.customNote &&
+                                (w.customNote.toLowerCase().includes('pending') ? (
+                                  <span className="bg-amber-950/40 border border-amber-500/40 text-amber-300 text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                                    ● {w.customNote}
+                                  </span>
+                                ) : (
+                                  <span>{w.customNote}</span>
+                                ))}
+                              {w.customNote &&
+                                !w.customNote.toLowerCase().includes('pending') &&
+                                subItems.length > 0 && <span>·</span>}
                               {subItems.length > 0 && (
                                 <button
                                   onClick={() => setActiveDetailModal(w)}
@@ -714,11 +723,6 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                                 >
                                   {subItems.length} {subItems.length === 1 ? 'detail' : 'details'} ›
                                 </button>
-                              )}
-                              {w.activity.toLowerCase().includes('reel') && count > 2 && (
-                                <span className="bg-amber-950/40 border border-amber-500/40 text-amber-300 text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                                  ● Approval pending
-                                </span>
                               )}
                             </div>
                           </div>
@@ -777,21 +781,15 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                             <div className="min-w-0 flex-1">
                               <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
                               <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-400">
-                                {w.customNote ? (
-                                  <span>{w.customNote}</span>
-                                ) : (
-                                  <span>Optimised posts for Google Business listing</span>
-                                )}
+                                {w.customNote && <span>{w.customNote}</span>}
+                                {w.customNote && subItems.length > 0 && <span>·</span>}
                                 {subItems.length > 0 && (
-                                  <>
-                                    <span>·</span>
-                                    <button
-                                      onClick={() => setActiveDetailModal(w)}
-                                      className="text-pink-400 hover:text-pink-300 font-semibold cursor-pointer"
-                                    >
-                                      {subItems.length} {subItems.length === 1 ? 'detail' : 'details'} ›
-                                    </button>
-                                  </>
+                                  <button
+                                    onClick={() => setActiveDetailModal(w)}
+                                    className="text-pink-400 hover:text-pink-300 font-semibold cursor-pointer"
+                                  >
+                                    {subItems.length} {subItems.length === 1 ? 'detail' : 'details'} ›
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -832,8 +830,11 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                         {marketingWorks.map((w) => (
                           <div key={w.id} className="text-xs">
                             <span className="font-bold text-white block">{w.activity}</span>
+                            {w.customNote && (
+                              <p className="text-slate-400 mt-0.5 leading-snug">{w.customNote}</p>
+                            )}
                             <div className="text-slate-400 mt-0.5 flex items-center gap-1.5">
-                              <span>{w.count} units</span>
+                              <span>{w.count} {w.count === 1 ? 'unit' : 'units'}</span>
                               {w.subItems && w.subItems.length > 0 && (
                                 <>
                                   <span>·</span>
@@ -841,7 +842,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                                     onClick={() => setActiveDetailModal(w)}
                                     className="text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
                                   >
-                                    {w.subItems.length} detail ›
+                                    {w.subItems.length} {w.subItems.length === 1 ? 'detail' : 'details'} ›
                                   </button>
                                 </>
                               )}
@@ -868,14 +869,19 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                         {designWorks.map((w) => (
                           <div key={w.id} className="text-xs">
                             <span className="font-bold text-white block">{w.activity}</span>
-                            <p className="text-slate-400 mt-0.5 leading-snug">
-                              {w.customNote || 'Unit = hours. Websites found for NAP listing.'}
-                            </p>
-                            <div className="mt-2">
-                              <span className="bg-amber-950/40 border border-amber-500/40 text-amber-300 text-[10px] font-semibold px-2 py-0.5 rounded-full inline-block">
-                                ● Bahrain details pending
-                              </span>
-                            </div>
+                            {w.customNote && (
+                              <p className="text-slate-400 mt-0.5 leading-snug">{w.customNote}</p>
+                            )}
+                            {w.subItems && w.subItems.length > 0 && (
+                              <div className="mt-1">
+                                <button
+                                  onClick={() => setActiveDetailModal(w)}
+                                  className="text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer"
+                                >
+                                  {w.subItems.length} {w.subItems.length === 1 ? 'detail' : 'details'} ›
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -899,7 +905,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                   NEXT STEPS &amp; EXECUTION ROADMAP
                 </p>
                 <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-                  Active tasks &amp; action plan
+                  Active tasks
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-400 mt-1">
                   Deliverables in progress and milestones ready for client review.
@@ -1099,10 +1105,10 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
           <span className="text-xs font-semibold text-slate-400">
             <strong className="text-white font-bold">{currentSlide + 1}</strong> / 3 ·{' '}
             {currentSlide === 0
-              ? 'Executive overview'
+              ? 'Overview'
               : currentSlide === 1
               ? 'Work streams & deliverables'
-              : 'Action plan'}
+              : 'Active tasks'}
           </span>
           <span className="text-[11px] text-slate-500 font-mono hidden md:inline">
             ← → navigate · Esc exit
@@ -1116,7 +1122,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
             className="bg-[#E11D74] hover:bg-[#C91866] text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-lg shadow-[#E11D74]/25 cursor-pointer flex items-center gap-1.5 transition-all"
           >
             <span>
-              {currentSlide === 0 ? 'Next: Deliverables' : 'Next: Action plan'}
+              {currentSlide === 0 ? 'Next: Deliverables' : 'Next: Active tasks'}
             </span>
             <ChevronRight className="w-4 h-4" />
           </button>

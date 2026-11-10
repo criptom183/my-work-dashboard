@@ -30,6 +30,7 @@ import {
   loadSyncSettingsFromStorage,
   saveSyncSettingsToStorage,
   saveTopicsBackup,
+  updateWorkNoteInBackup,
   removeSubItemFromBackup,
   restoreTopicsFromBackup,
   buildTopicSyncKey,
@@ -57,6 +58,9 @@ import {
   subscribeToSharedSyncSettings,
   saveSharedSyncedTopics,
   subscribeToSharedSyncedTopics,
+  saveDeliverableNotesToFirestore,
+  subscribeToDeliverableNotes,
+  StoredDeliverableNote,
 } from './utils/firestoreTasks';
 import {
   RefreshCw,
@@ -245,9 +249,120 @@ export default function App() {
   const dataRef = useRef(data);
   dataRef.current = data;
 
+  const isViewOnlyRef = useRef(isViewOnly);
+  isViewOnlyRef.current = isViewOnly;
+
   const syncSettingsRef = useRef(syncSettings);
   syncSettingsRef.current = syncSettings;
 
+  // Permanent in-memory mirror of Firestore config/deliverable_notes vault
+  const cloudDeliverableNotesRef = useRef<{
+    itemNotes: Record<string, StoredDeliverableNote>;
+    workListNotes: Record<string, string>;
+  }>({
+    itemNotes: {},
+    workListNotes: {},
+  });
+
+  // Helper to merge notes & sub-items from current state, cloud vault, and initialDashboardData
+  const enrichWorkWithSavedNotesAndDetails = useCallback(
+    (
+      w: WorkItem,
+      existingByActivity: Map<string, WorkItem>,
+      initialByActivity: Map<string, WorkItem>
+    ): WorkItem => {
+      const key = w.activity.trim().toLowerCase();
+      let match = existingByActivity.get(key);
+      if (!match && key.startsWith('news or awareness reels')) {
+        match = existingByActivity.get('news or awareness reels');
+      }
+      let initMatch = initialByActivity.get(key);
+      if (!initMatch && key.startsWith('news or awareness reels')) {
+        initMatch = initialByActivity.get('news or awareness reels');
+      }
+      const vaultNote =
+        cloudDeliverableNotesRef.current.itemNotes[key] ||
+        (key.startsWith('news or awareness reels')
+          ? cloudDeliverableNotesRef.current.itemNotes['news or awareness reels']
+          : undefined);
+
+      // Merge monthly sub items without dropping anything
+      const mergedMonthly: Record<string, DeliverableSubItem[]> = {
+        ...(initMatch?.monthlySubItems || {}),
+        ...(match?.monthlySubItems || {}),
+        ...(w.monthlySubItems || {}),
+      };
+
+      for (const source of [initMatch?.monthlySubItems, match?.monthlySubItems, w.monthlySubItems]) {
+        if (!source) continue;
+        for (const [m, list] of Object.entries(source)) {
+          const current = mergedMonthly[m] || [];
+          const seen = new Set(current.map((i) => i.id));
+          const combined = [...current];
+          for (const it of list || []) {
+            if (!seen.has(it.id)) {
+              seen.add(it.id);
+              combined.push(it);
+            }
+          }
+          mergedMonthly[m] = combined;
+        }
+      }
+
+      // Merge monthlyNotes (preserve non-empty notes across initial, local, and cloud vault)
+      const mergedMonthlyNotes: Record<string, string> = {};
+      for (const noteSource of [
+        initMatch?.monthlyNotes,
+        match?.monthlyNotes,
+        vaultNote?.monthlyNotes,
+        w.monthlyNotes,
+      ]) {
+        if (noteSource && typeof noteSource === 'object') {
+          for (const [m, txt] of Object.entries(noteSource)) {
+            if (typeof txt === 'string' && txt.trim()) {
+              mergedMonthlyNotes[m] = txt.trim();
+            }
+          }
+        }
+      }
+
+      const resolvedCustomNote =
+        (w.customNote && w.customNote.trim()) ||
+        (vaultNote?.customNote && vaultNote.customNote.trim()) ||
+        (match?.customNote && match.customNote.trim()) ||
+        (initMatch?.customNote && initMatch.customNote.trim()) ||
+        undefined;
+
+      const resolvedNotes =
+        (w.notes && w.notes.trim()) ||
+        (vaultNote?.notes && vaultNote.notes.trim()) ||
+        (match?.notes && match.notes.trim()) ||
+        (initMatch?.notes && initMatch.notes.trim()) ||
+        undefined;
+
+      let activeSub: DeliverableSubItem[] = [];
+      if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
+        activeSub = mergedMonthly[w.month];
+      } else if (match?.subItems && match.subItems.length > 0) {
+        activeSub = match.subItems;
+      } else if (w.subItems && w.subItems.length > 0) {
+        activeSub = w.subItems;
+      } else if (initMatch?.subItems && initMatch.subItems.length > 0) {
+        activeSub = initMatch.subItems;
+      }
+
+      return {
+        ...w,
+        notes: resolvedNotes,
+        customNote: resolvedCustomNote,
+        monthlyNotes:
+          Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : undefined,
+        subItems: activeSub,
+        monthlySubItems: mergedMonthly,
+      };
+    },
+    []
+  );
 
   const handleUpdateSyncSettings = useCallback((newSettings: SyncSettings) => {
     setSyncSettings(newSettings);
@@ -279,59 +394,21 @@ export default function App() {
           existingByActivity.set(w.activity.trim().toLowerCase(), w);
         }
 
-        // Also seed from initialDashboardData so default notes/details are never lost
+        const initialByActivity = new Map<string, WorkItem>();
         for (const w of initialDashboardData.worksCompleted || []) {
-          const key = w.activity.trim().toLowerCase();
-          if (!existingByActivity.has(key)) {
-            existingByActivity.set(key, w);
-          }
+          initialByActivity.set(w.activity.trim().toLowerCase(), w);
         }
 
-        const updatedFreshWorks = (freshData.worksCompleted || []).map((w) => {
-          const key = w.activity.trim().toLowerCase();
-          let match = existingByActivity.get(key);
-          // Fallback match if 'News or Awareness Reels' was renamed to 'News or Awareness Reels (Incl. Malayalam & English)'
-          if (!match && key.startsWith('news or awareness reels')) {
-            match = existingByActivity.get('news or awareness reels');
-          }
-
-          if (match) {
-            // Merge monthly sub items without dropping anything
-            const mergedMonthly: Record<string, DeliverableSubItem[]> = {
-              ...(match.monthlySubItems || {}),
-              ...(w.monthlySubItems || {}),
-            };
-
-            for (const [m, list] of Object.entries(match.monthlySubItems || {})) {
-              const current = mergedMonthly[m] || [];
-              const seen = new Set(current.map((i) => i.id));
-              const combined = [...current];
-              for (const it of list || []) {
-                if (!seen.has(it.id)) {
-                  seen.add(it.id);
-                  combined.push(it);
-                }
-              }
-              mergedMonthly[m] = combined;
-            }
-
-            return {
-              ...w,
-              customNote: w.customNote || match.customNote,
-              monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-              subItems:
-                match.subItems && match.subItems.length > 0 ? match.subItems : w.subItems,
-              monthlySubItems: mergedMonthly,
-            };
-          }
-          return w;
-        });
+        const updatedFreshWorks = (freshData.worksCompleted || []).map((w) =>
+          enrichWorkWithSavedNotesAndDetails(w, existingByActivity, initialByActivity)
+        );
 
         // Authoritative list comes strictly from the synced Google Sheet (no leftover rows from old sheets)
         const mergedWorks = restoreTopicsFromBackup(updatedFreshWorks);
         saveTopicsBackup(mergedWorks);
 
         const mergedNotes = {
+          ...(cloudDeliverableNotesRef.current.workListNotes || {}),
           ...(dataRef.current.workListNotes || {}),
           ...(freshData.workListNotes || {}),
         };
@@ -345,10 +422,12 @@ export default function App() {
 
         setData(mergedData);
 
-        // Broadcast to Cloud Firestore so any user, device, or incognito tab sees the updated data with notes intact!
-        saveSharedDashboardData(mergedData).catch(console.warn);
-        if (currentUrl) {
-          saveSharedSheetUrl(currentUrl).catch(console.warn);
+        // Broadcast to Cloud Firestore if triggered manually or by an editor
+        if (!isSilent || !isViewOnlyRef.current) {
+          saveSharedDashboardData(mergedData).catch(console.warn);
+          if (currentUrl) {
+            saveSharedSheetUrl(currentUrl).catch(console.warn);
+          }
         }
 
         if (freshData.tasks && freshData.tasks.length > 0) {
@@ -404,7 +483,7 @@ export default function App() {
         }
       }
     },
-    [handleUpdateSyncSettings, showToast]
+    [enrichWorkWithSavedNotesAndDetails, handleUpdateSyncSettings, showToast]
   );
 
   // Real-time synchronization from Cloud Firestore across all devices and incognito tabs
@@ -446,8 +525,9 @@ export default function App() {
         }
 
         setData((prev) => {
-          // Merge workListNotes so any existing notes in local state are never wiped
+          // Merge workListNotes so any existing notes in local state or vault are never wiped
           const mergedNotes = {
+            ...(cloudDeliverableNotesRef.current.workListNotes || {}),
             ...(prev.workListNotes || {}),
             ...(cloudDashboard.workListNotes || {}),
           };
@@ -455,6 +535,11 @@ export default function App() {
           const existingByActivity = new Map<string, WorkItem>();
           for (const w of prev.worksCompleted || []) {
             existingByActivity.set(w.activity.trim().toLowerCase(), w);
+          }
+
+          const initialByActivity = new Map<string, WorkItem>();
+          for (const w of initialDashboardData.worksCompleted || []) {
+            initialByActivity.set(w.activity.trim().toLowerCase(), w);
           }
 
           // Filter out legacy duplicate 'News or Awareness Reels' if the new full name exists
@@ -468,44 +553,9 @@ export default function App() {
             : cloudDashboard.worksCompleted;
 
           const mergedWorks = restoreTopicsFromBackup(
-            cleanCloudWorks.map((w) => {
-              const match = existingByActivity.get(w.activity.trim().toLowerCase());
-              // Non-destructive union of monthly sub items
-              const mergedMonthly: Record<string, DeliverableSubItem[]> = {
-                ...(match?.monthlySubItems || {}),
-                ...(w.monthlySubItems || {}),
-              };
-
-              for (const [m, list] of Object.entries(match?.monthlySubItems || {})) {
-                const cloudList = mergedMonthly[m] || [];
-                const seen = new Set(cloudList.map((i) => i.id));
-                const combined = [...cloudList];
-                for (const it of list || []) {
-                  if (!seen.has(it.id)) {
-                    combined.push(it);
-                    seen.add(it.id);
-                  }
-                }
-                mergedMonthly[m] = combined;
-              }
-
-              let activeSub: DeliverableSubItem[] = [];
-              if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
-                activeSub = mergedMonthly[w.month];
-              } else if (w.subItems && w.subItems.length > 0) {
-                activeSub = w.subItems;
-              } else if (match?.subItems && match.subItems.length > 0) {
-                activeSub = match.subItems;
-              }
-
-              return {
-                ...w,
-                customNote: w.customNote || match?.customNote,
-                monthlyNotes: { ...(match?.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-                subItems: activeSub,
-                monthlySubItems: mergedMonthly,
-              };
-            })
+            cleanCloudWorks.map((w) =>
+              enrichWorkWithSavedNotesAndDetails(w, existingByActivity, initialByActivity)
+            )
           );
           saveTopicsBackup(mergedWorks);
 
@@ -584,6 +634,83 @@ export default function App() {
       }
     });
 
+    // 4b. Subscribe to dedicated deliverable_notes vault from Firestore
+    const unsubDeliverableNotes = subscribeToDeliverableNotes(({ itemNotes, workListNotes }) => {
+      cloudDeliverableNotesRef.current = {
+        itemNotes: itemNotes || {},
+        workListNotes: workListNotes || {},
+      };
+      if (
+        (itemNotes && Object.keys(itemNotes).length > 0) ||
+        (workListNotes && Object.keys(workListNotes).length > 0)
+      ) {
+        setData((prev) => {
+          let hasChanges = false;
+          const updatedWorks = prev.worksCompleted.map((w) => {
+            const actKey = w.activity.trim().toLowerCase();
+            const vaultEntry = itemNotes[actKey];
+            if (!vaultEntry) return w;
+
+            const mergedMonthlyNotes: Record<string, string> = {
+              ...(w.monthlyNotes || {}),
+            };
+            if (vaultEntry.monthlyNotes && typeof vaultEntry.monthlyNotes === 'object') {
+              for (const [m, txt] of Object.entries(vaultEntry.monthlyNotes)) {
+                if (typeof txt === 'string' && txt.trim() && mergedMonthlyNotes[m] !== txt.trim()) {
+                  mergedMonthlyNotes[m] = txt.trim();
+                  hasChanges = true;
+                }
+              }
+            }
+
+            const nextCustomNote =
+              (w.customNote && w.customNote.trim()) ||
+              (vaultEntry.customNote && vaultEntry.customNote.trim()) ||
+              undefined;
+            if (nextCustomNote !== w.customNote) {
+              hasChanges = true;
+            }
+
+            const nextNotes =
+              (w.notes && w.notes.trim()) ||
+              (vaultEntry.notes && vaultEntry.notes.trim()) ||
+              undefined;
+            if (nextNotes !== w.notes) {
+              hasChanges = true;
+            }
+
+            return {
+              ...w,
+              notes: nextNotes,
+              customNote: nextCustomNote,
+              monthlyNotes:
+                Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : w.monthlyNotes,
+            };
+          });
+
+          const mergedWorkListNotes = {
+            ...(workListNotes || {}),
+            ...(prev.workListNotes || {}),
+          };
+          if (
+            JSON.stringify(mergedWorkListNotes) !== JSON.stringify(prev.workListNotes || {})
+          ) {
+            hasChanges = true;
+          }
+
+          if (!hasChanges) return prev;
+          saveTopicsBackup(updatedWorks);
+          const nextData: DashboardData = {
+            ...prev,
+            worksCompleted: updatedWorks,
+            workListNotes: mergedWorkListNotes,
+          };
+          saveDashboardToStorage(nextData);
+          return nextData;
+        });
+      }
+    });
+
     // 5. Subscribe to shared SyncSettings (including Google Apps Script Web App webhookUrl) across desktop & mobile
     if (syncSettingsRef.current.webhookUrl) {
       saveSharedSyncSettings(syncSettingsRef.current).catch(console.warn);
@@ -623,10 +750,11 @@ export default function App() {
       unsubSheetUrl();
       unsubDashboard();
       unsubDetails();
+      unsubDeliverableNotes();
       unsubSyncSettings();
       unsubSyncedTopics();
     };
-  }, [handleSyncGoogleSheet]);
+  }, [enrichWorkWithSavedNotesAndDetails, handleSyncGoogleSheet]);
 
   // Sync selectedMonth when new data arrives
   useEffect(() => {
@@ -640,8 +768,20 @@ export default function App() {
   // Load from local storage on startup WITHOUT overwriting Cloud Firestore with potentially stale local cache
   useEffect(() => {
     const loaded = loadDashboardFromStorage();
+    const initialByActivity = new Map<string, WorkItem>();
+    for (const w of initialDashboardData.worksCompleted || []) {
+      initialByActivity.set(w.activity.trim().toLowerCase(), w);
+    }
+
     if (loaded && loaded.data && loaded.data.worksCompleted && loaded.data.worksCompleted.length > 0) {
-      const restoredWorks = restoreTopicsFromBackup(loaded.data.worksCompleted);
+      const existingByActivity = new Map<string, WorkItem>();
+      for (const w of loaded.data.worksCompleted) {
+        existingByActivity.set(w.activity.trim().toLowerCase(), w);
+      }
+      const enriched = loaded.data.worksCompleted.map((w) =>
+        enrichWorkWithSavedNotesAndDetails(w, existingByActivity, initialByActivity)
+      );
+      const restoredWorks = restoreTopicsFromBackup(enriched);
       const completeData: DashboardData = {
         ...loaded.data,
         sheetSourceUrl: loaded.data.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL,
@@ -652,10 +792,32 @@ export default function App() {
       setIsSavedInStorage(true);
       setSavedMeta(loaded.meta);
 
+      // Push any locally saved custom notes to the permanent Firestore deliverable_notes vault
+      const localNotesToPush: Record<string, StoredDeliverableNote> = {};
+      for (const w of restoredWorks) {
+        if (w.customNote || (w.monthlyNotes && Object.keys(w.monthlyNotes).length > 0)) {
+          localNotesToPush[w.activity.trim().toLowerCase()] = {
+            activity: w.activity,
+            customNote: w.customNote,
+            monthlyNotes: w.monthlyNotes,
+            notes: w.notes,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      }
+      if (
+        Object.keys(localNotesToPush).length > 0 ||
+        (completeData.workListNotes && Object.keys(completeData.workListNotes).length > 0)
+      ) {
+        saveDeliverableNotesToFirestore(localNotesToPush, completeData.workListNotes).catch(
+          console.warn
+        );
+      }
+
       if (completeData.sheetSourceUrl && syncSettingsRef.current.autoSync) {
         const timer = setTimeout(() => {
           handleSyncGoogleSheet(true, completeData.sheetSourceUrl);
-        }, 800);
+        }, 1200);
         return () => clearTimeout(timer);
       }
     } else {
@@ -670,14 +832,15 @@ export default function App() {
       if (syncSettingsRef.current.autoSync) {
         const timer = setTimeout(() => {
           handleSyncGoogleSheet(true, DEFAULT_GOOGLE_SHEET_URL);
-        }, 800);
+        }, 1200);
         return () => clearTimeout(timer);
       }
     }
-  }, [handleSyncGoogleSheet]);
+  }, [enrichWorkWithSavedNotesAndDetails, handleSyncGoogleSheet]);
 
   const handleSaveToLocalMemory = () => {
     saveDashboardToStorage(data);
+    saveTopicsBackup(data.worksCompleted);
     saveSharedDashboardData(data).catch(console.warn);
     if (data.sheetSourceUrl) {
       saveSharedSheetUrl(data.sheetSourceUrl).catch(console.warn);
@@ -704,7 +867,11 @@ export default function App() {
 
   const handleUpdateWorkItem = (id: string, updates: Partial<WorkItem>) => {
     if (isViewOnly) return;
+    const targetMonth =
+      selectedMonth === 'all' ? data.availableMonths?.[data.availableMonths.length - 1] || 'Nov 2026' : selectedMonth;
+
     setData((prev) => {
+      let updatedTargetWork: WorkItem | null = null;
       const updatedWorks = prev.worksCompleted.map((w) => {
         if (w.id === id || w.id.replace(/^all-/, '') === id.replace(/^all-/, '')) {
           const updatedBreakdown = w.monthlyBreakdown
@@ -716,34 +883,57 @@ export default function App() {
               }
             : undefined;
 
-          // Strictly scope deliverable custom notes to selectedMonth
+          // Scope deliverable custom notes to selectedMonth and keep root customNote in sync
           const updatedMonthlyNotes = w.monthlyNotes ? { ...w.monthlyNotes } : {};
           if (updates.customNote !== undefined) {
-            if (updates.customNote) {
-              updatedMonthlyNotes[selectedMonth] = updates.customNote;
+            if (updates.customNote && updates.customNote.trim()) {
+              updatedMonthlyNotes[targetMonth] = updates.customNote.trim();
             } else {
-              delete updatedMonthlyNotes[selectedMonth];
+              delete updatedMonthlyNotes[targetMonth];
             }
           }
 
-          // Root customNote only reflects when selectedMonth matches the item's primary month
-          const rootCustomNote =
-            updates.customNote !== undefined
-              ? (w.month && isSameMonth(w.month, selectedMonth)) || selectedMonth === 'all'
-                ? updates.customNote || undefined
-                : w.customNote
-              : w.customNote;
+          let rootCustomNote = w.customNote;
+          if (updates.customNote !== undefined) {
+            if (updates.customNote && updates.customNote.trim()) {
+              rootCustomNote = updates.customNote.trim();
+            } else if (Object.keys(updatedMonthlyNotes).length === 0) {
+              rootCustomNote = undefined;
+            } else {
+              const remaining = Object.values(updatedMonthlyNotes).filter(Boolean);
+              rootCustomNote = remaining[remaining.length - 1];
+            }
+          }
 
-          return {
+          const nextWork: WorkItem = {
             ...w,
             ...updates,
             customNote: rootCustomNote,
             monthlyBreakdown: updatedBreakdown,
             monthlyNotes: updatedMonthlyNotes,
           };
+          updatedTargetWork = nextWork;
+          return nextWork;
         }
         return w;
       });
+
+      if (updatedTargetWork) {
+        const tw = updatedTargetWork as WorkItem;
+        const actKey = tw.activity.trim().toLowerCase();
+        updateWorkNoteInBackup(tw.activity, targetMonth, updates.customNote, updates.notes);
+        const noteEntry: StoredDeliverableNote = {
+          activity: tw.activity,
+          customNote: tw.customNote || '',
+          monthlyNotes: tw.monthlyNotes || {},
+          notes: tw.notes || '',
+          updatedAt: new Date().toISOString(),
+        };
+        cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;
+        saveDeliverableNotesToFirestore({ [actKey]: noteEntry }).catch(console.warn);
+      }
+
+      saveTopicsBackup(updatedWorks);
       const updatedDashboard: DashboardData = { ...prev, worksCompleted: updatedWorks };
       saveDashboardToStorage(updatedDashboard);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
@@ -771,6 +961,9 @@ export default function App() {
           updatedNotes[`tasks_${m}`] = noteText;
         }
       }
+
+      cloudDeliverableNotesRef.current.workListNotes = updatedNotes;
+      saveDeliverableNotesToFirestore({}, updatedNotes).catch(console.warn);
 
       const updatedDashboard: DashboardData = {
         ...prev,
@@ -807,10 +1000,26 @@ export default function App() {
       },
     };
 
+    if (notes && notes.trim()) {
+      const actKey = activity.trim().toLowerCase();
+      updateWorkNoteInBackup(activity, targetMonth, notes.trim(), notes.trim());
+      const noteEntry: StoredDeliverableNote = {
+        activity,
+        customNote: notes.trim(),
+        monthlyNotes: { [targetMonth]: notes.trim() },
+        notes: notes.trim(),
+        updatedAt: new Date().toISOString(),
+      };
+      cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;
+      saveDeliverableNotesToFirestore({ [actKey]: noteEntry }).catch(console.warn);
+    }
+
     setData((prev) => {
+      const nextWorks = [newWork, ...prev.worksCompleted];
+      saveTopicsBackup(nextWorks);
       const updatedDashboard = {
         ...prev,
-        worksCompleted: [newWork, ...prev.worksCompleted],
+        worksCompleted: nextWorks,
       };
       saveDashboardToStorage(updatedDashboard);
       saveSharedDashboardData(updatedDashboard).catch(console.warn);
@@ -1261,47 +1470,14 @@ export default function App() {
     for (const w of dataRef.current.worksCompleted || []) {
       existingByActivity.set(w.activity.trim().toLowerCase(), w);
     }
+    const initialByActivity = new Map<string, WorkItem>();
     for (const w of initialDashboardData.worksCompleted || []) {
-      const key = w.activity.trim().toLowerCase();
-      if (!existingByActivity.has(key)) {
-        existingByActivity.set(key, w);
-      }
+      initialByActivity.set(w.activity.trim().toLowerCase(), w);
     }
 
-    const updatedNewWorks = (newData.worksCompleted || []).map((w) => {
-      const key = w.activity.trim().toLowerCase();
-      let match = existingByActivity.get(key);
-      if (!match && key.startsWith('news or awareness reels')) {
-        match = existingByActivity.get('news or awareness reels');
-      }
-      if (match) {
-        const mergedMonthly: Record<string, DeliverableSubItem[]> = {
-          ...(match.monthlySubItems || {}),
-          ...(w.monthlySubItems || {}),
-        };
-        for (const [m, list] of Object.entries(match.monthlySubItems || {})) {
-          const current = mergedMonthly[m] || [];
-          const seen = new Set(current.map((i) => i.id));
-          const combined = [...current];
-          for (const it of list || []) {
-            if (!seen.has(it.id)) {
-              combined.push(it);
-              seen.add(it.id);
-            }
-          }
-          mergedMonthly[m] = combined;
-        }
-
-        return {
-          ...w,
-          customNote: w.customNote || match.customNote,
-          monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-          subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
-          monthlySubItems: mergedMonthly,
-        };
-      }
-      return w;
-    });
+    const updatedNewWorks = (newData.worksCompleted || []).map((w) =>
+      enrichWorkWithSavedNotesAndDetails(w, existingByActivity, initialByActivity)
+    );
 
     const mergedWorks = restoreTopicsFromBackup(updatedNewWorks);
     saveTopicsBackup(mergedWorks);
@@ -1310,6 +1486,7 @@ export default function App() {
       ...newData,
       worksCompleted: mergedWorks,
       workListNotes: {
+        ...(cloudDeliverableNotesRef.current.workListNotes || {}),
         ...(dataRef.current.workListNotes || {}),
         ...(newData.workListNotes || {}),
       },

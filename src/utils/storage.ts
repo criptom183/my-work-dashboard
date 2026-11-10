@@ -63,14 +63,64 @@ export interface StorageMeta {
   totalWorks: number;
 }
 
+export interface TopicBackupEntry {
+  subItems?: DeliverableSubItem[];
+  monthlySubItems?: Record<string, DeliverableSubItem[]>;
+  customNote?: string;
+  monthlyNotes?: Record<string, string>;
+  notes?: string;
+}
+
+/**
+ * Rescue any user-added notes or sub-items from legacy storage keys before removing them.
+ */
+function rescueFromOldStorageKeys(): void {
+  try {
+    const rawBackup = localStorage.getItem(TOPICS_BACKUP_KEY);
+    const backup: Record<string, TopicBackupEntry> = rawBackup ? JSON.parse(rawBackup) : {};
+    let modified = false;
+
+    for (const k of OLD_STORAGE_KEYS) {
+      const val = localStorage.getItem(k);
+      if (!val) continue;
+      try {
+        const parsed = JSON.parse(val);
+        if (parsed && Array.isArray(parsed.worksCompleted)) {
+          for (const w of parsed.worksCompleted) {
+            if (!w || !w.activity) continue;
+            const key = String(w.activity).trim().toLowerCase();
+            const entry = backup[key] || {};
+            if (w.customNote && !entry.customNote) {
+              entry.customNote = w.customNote;
+              modified = true;
+            }
+            if (w.notes && !entry.notes) {
+              entry.notes = w.notes;
+              modified = true;
+            }
+            if (w.monthlyNotes && typeof w.monthlyNotes === 'object') {
+              entry.monthlyNotes = { ...(w.monthlyNotes || {}), ...(entry.monthlyNotes || {}) };
+              modified = true;
+            }
+            backup[key] = entry;
+          }
+        }
+      } catch {}
+      localStorage.removeItem(k);
+    }
+
+    if (modified) {
+      localStorage.setItem(TOPICS_BACKUP_KEY, JSON.stringify(backup));
+    }
+  } catch {}
+}
+
 /**
  * Save dashboard data to browser local storage
  */
 export function saveDashboardToStorage(data: DashboardData): boolean {
   try {
-    for (const k of OLD_STORAGE_KEYS) {
-      localStorage.removeItem(k);
-    }
+    rescueFromOldStorageKeys();
     const cleanData: DashboardData = {
       ...data,
       worksCompleted: (data.worksCompleted || []).map(sanitizeWorkItemSubItems),
@@ -99,21 +149,22 @@ export function saveDashboardToStorage(data: DashboardData): boolean {
  */
 export function loadDashboardFromStorage(): { data: DashboardData; meta: StorageMeta } | null {
   try {
-    // Purge legacy caches that held the old Google Sheet link or old sample sub-items
-    for (const k of OLD_STORAGE_KEYS) {
-      localStorage.removeItem(k);
-    }
+    // Rescue notes from any legacy caches before purging old keys
+    rescueFromOldStorageKeys();
 
     const serialized = localStorage.getItem(STORAGE_KEY);
     if (!serialized) return null;
 
     const data: DashboardData = JSON.parse(serialized);
 
-    // If stored data points to a deprecated sheet ID, discard it so the new sheet is used cleanly
+    // If stored data points to a deprecated sheet ID, rescue its notes first, then discard the old sheet
     if (
       data.sheetSourceUrl &&
       DEPRECATED_SHEET_IDS.some((oldId) => data.sheetSourceUrl?.includes(oldId))
     ) {
+      if (Array.isArray(data.worksCompleted)) {
+        saveTopicsBackup(data.worksCompleted);
+      }
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(STORAGE_META_KEY);
       return null;
@@ -205,21 +256,15 @@ export function loadSyncSettingsFromStorage(): SyncSettings {
 }
 
 /**
- * Retrieve the current raw topics/details backup dictionary (with sample dummy items stripped)
+ * Retrieve the current raw topics/details & notes backup dictionary (with sample dummy items stripped)
  */
-export function getTopicsBackup(): Record<
-  string,
-  { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
-> {
+export function getTopicsBackup(): Record<string, TopicBackupEntry> {
   try {
     localStorage.removeItem('vzone_marketing_dashboard_topics_backup_v1');
     const raw = localStorage.getItem(TOPICS_BACKUP_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    const cleaned: Record<
-      string,
-      { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
-    > = {};
+    const cleaned: Record<string, TopicBackupEntry> = {};
     for (const [k, entry] of Object.entries<any>(parsed || {})) {
       const subItems = filterValidSubItems(entry?.subItems);
       const monthlySubItems: Record<string, DeliverableSubItem[]> = {};
@@ -228,7 +273,27 @@ export function getTopicsBackup(): Record<
           monthlySubItems[m] = filterValidSubItems(list);
         }
       }
-      cleaned[k] = { subItems, monthlySubItems };
+      const monthlyNotes: Record<string, string> = {};
+      if (entry?.monthlyNotes && typeof entry.monthlyNotes === 'object') {
+        for (const [m, noteText] of Object.entries<any>(entry.monthlyNotes)) {
+          if (typeof noteText === 'string' && noteText.trim()) {
+            monthlyNotes[m] = noteText.trim();
+          }
+        }
+      }
+      cleaned[k] = {
+        subItems,
+        monthlySubItems,
+        customNote:
+          typeof entry?.customNote === 'string' && entry.customNote.trim()
+            ? entry.customNote.trim()
+            : undefined,
+        monthlyNotes: Object.keys(monthlyNotes).length > 0 ? monthlyNotes : undefined,
+        notes:
+          typeof entry?.notes === 'string' && entry.notes.trim()
+            ? entry.notes.trim()
+            : undefined,
+      };
     }
     return cleaned;
   } catch {
@@ -237,15 +302,12 @@ export function getTopicsBackup(): Record<
 }
 
 /**
- * Saves a dedicated, resilient topics/details backup in localStorage.
+ * Saves a dedicated, resilient topics/details & notes backup in localStorage.
  * Strips any legacy dummy sample items (sub-reel-1, sub-reel-2, sub-reel-3).
  */
 export function saveTopicsBackup(works: WorkItem[]): void {
   try {
-    const backup: Record<
-      string,
-      { subItems?: DeliverableSubItem[]; monthlySubItems?: Record<string, DeliverableSubItem[]> }
-    > = getTopicsBackup();
+    const backup: Record<string, TopicBackupEntry> = getTopicsBackup();
 
     for (const rawWork of works) {
       const w = sanitizeWorkItemSubItems(rawWork);
@@ -286,10 +348,42 @@ export function saveTopicsBackup(works: WorkItem[]): void {
         }
       }
 
-      if (combinedSub.length > 0 || Object.keys(mergedMonthly).length > 0) {
+      // Merge monthlyNotes (preserve non-empty notes)
+      const mergedMonthlyNotes: Record<string, string> = {
+        ...(existing.monthlyNotes || {}),
+      };
+      if (w.monthlyNotes && typeof w.monthlyNotes === 'object') {
+        for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
+          if (typeof noteText === 'string' && noteText.trim()) {
+            mergedMonthlyNotes[m] = noteText.trim();
+          }
+        }
+      }
+
+      const resolvedCustomNote =
+        (w.customNote && w.customNote.trim()) ||
+        (existing.customNote && existing.customNote.trim()) ||
+        undefined;
+
+      const resolvedNotes =
+        (w.notes && w.notes.trim()) ||
+        (existing.notes && existing.notes.trim()) ||
+        undefined;
+
+      if (
+        combinedSub.length > 0 ||
+        Object.keys(mergedMonthly).length > 0 ||
+        resolvedCustomNote ||
+        Object.keys(mergedMonthlyNotes).length > 0 ||
+        resolvedNotes
+      ) {
         backup[key] = {
           subItems: combinedSub,
           monthlySubItems: mergedMonthly,
+          customNote: resolvedCustomNote,
+          monthlyNotes:
+            Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : undefined,
+          notes: resolvedNotes,
         };
       }
     }
@@ -297,6 +391,52 @@ export function saveTopicsBackup(works: WorkItem[]): void {
     localStorage.setItem(TOPICS_BACKUP_KEY, JSON.stringify(backup));
   } catch (e) {
     console.error('Failed to save topics backup:', e);
+  }
+}
+
+/**
+ * Explicitly updates or clears a deliverable's note in the local backup when user edits/clears it.
+ */
+export function updateWorkNoteInBackup(
+  activity: string,
+  targetMonth: string,
+  customNote: string | undefined,
+  notes?: string
+): void {
+  try {
+    const backup = getTopicsBackup();
+    const key = activity.trim().toLowerCase();
+    const entry = backup[key] || {};
+    const monthlyNotes = { ...(entry.monthlyNotes || {}) };
+
+    if (customNote && customNote.trim()) {
+      const clean = customNote.trim();
+      entry.customNote = clean;
+      if (targetMonth && targetMonth !== 'all') {
+        monthlyNotes[targetMonth] = clean;
+      }
+    } else if (customNote !== undefined) {
+      // User intentionally cleared the note for this month
+      if (targetMonth && targetMonth !== 'all') {
+        delete monthlyNotes[targetMonth];
+      }
+      if (Object.keys(monthlyNotes).length === 0) {
+        entry.customNote = undefined;
+      } else {
+        const remaining = Object.values(monthlyNotes).filter(Boolean);
+        entry.customNote = remaining[remaining.length - 1];
+      }
+    }
+
+    entry.monthlyNotes = Object.keys(monthlyNotes).length > 0 ? monthlyNotes : undefined;
+    if (notes !== undefined) {
+      entry.notes = notes.trim() || undefined;
+    }
+
+    backup[key] = entry;
+    localStorage.setItem(TOPICS_BACKUP_KEY, JSON.stringify(backup));
+  } catch (e) {
+    console.error('Failed to update work note in backup:', e);
   }
 }
 
@@ -329,7 +469,7 @@ export function removeSubItemFromBackup(
 }
 
 /**
- * Restores any topics/details from the backup if a sync, sheet reload, or cloud update omitted them.
+ * Restores any topics/details AND notes from the backup if a sync, sheet reload, or cloud update omitted them.
  */
 export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
   try {
@@ -372,8 +512,34 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
         activeSub = filterValidSubItems(saved.subItems);
       }
 
+      // Merge monthlyNotes without overwriting non-empty notes with empty strings
+      const mergedMonthlyNotes: Record<string, string> = {
+        ...(saved.monthlyNotes || {}),
+      };
+      if (w.monthlyNotes && typeof w.monthlyNotes === 'object') {
+        for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
+          if (typeof noteText === 'string' && noteText.trim()) {
+            mergedMonthlyNotes[m] = noteText.trim();
+          }
+        }
+      }
+
+      const resolvedCustomNote =
+        (w.customNote && w.customNote.trim()) ||
+        (saved.customNote && saved.customNote.trim()) ||
+        undefined;
+
+      const resolvedNotes =
+        (w.notes && w.notes.trim()) ||
+        (saved.notes && saved.notes.trim()) ||
+        undefined;
+
       return {
         ...w,
+        notes: resolvedNotes,
+        customNote: resolvedCustomNote,
+        monthlyNotes:
+          Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : w.monthlyNotes,
         subItems: activeSub,
         monthlySubItems: mergedMonthly,
       };

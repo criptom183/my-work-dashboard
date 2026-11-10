@@ -364,6 +364,10 @@ export const initialDashboardData: DashboardData = {
       count: 2,
       category: 'Video Production',
       notes: 'Educational trial reels; move to main section if they gain reach',
+      customNote: 'Educational trial reels; move to main section if they gain reach',
+      monthlyNotes: {
+        'Nov 2026': 'Educational trial reels; move to main section if they gain reach',
+      },
       month: 'Nov 2026',
       monthlyBreakdown: {
         'Sep 2026': 0,
