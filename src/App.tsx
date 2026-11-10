@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { initialDashboardData } from './data/initialData';
-import { DashboardData, WorkItem, SyncSettings, TaskItem } from './types';
+import { DashboardData, WorkItem, SyncSettings, TaskItem, DeliverableSubItem } from './types';
 import { Sidebar } from './components/Sidebar';
 import { BrandTopBar } from './components/BrandTopBar';
 import { BrandKpiCards } from './components/BrandKpiCards';
@@ -15,7 +15,7 @@ import { BrandOutputMix } from './components/BrandOutputMix';
 import { BrandTasksWidget } from './components/BrandTasksWidget';
 import { UploadSheetModal } from './components/UploadSheetModal';
 import { TaskManagerPage } from './components/TaskManagerPage';
-import { exportToCsv } from './utils/sheetParser';
+import { exportToCsv, downloadWorkbookWithSubItemsTab } from './utils/sheetParser';
 import { getWorksForSelectedMonth, isSameMonth } from './utils/monthHelper';
 import {
   saveDashboardToStorage,
@@ -596,6 +596,153 @@ export default function App() {
     setIsSavedInStorage(true);
   };
 
+  const handleAddSubItem = (workItemId: string, title: string, note?: string) => {
+    if (isViewOnly) return;
+    const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
+    const cleanId = workItemId.replace(/^all-/, '');
+    const newSubItem: DeliverableSubItem = {
+      id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: title.trim(),
+      note: note?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    setData((prev) => {
+      const updatedWorks = prev.worksCompleted.map((w) => {
+        if (w.id === cleanId || w.id === workItemId || w.id.replace(/^all-/, '') === cleanId) {
+          const monthlySub = { ...(w.monthlySubItems || {}) };
+          const currentList = monthlySub[targetMonth]
+            ? [...monthlySub[targetMonth]]
+            : w.subItems
+            ? [...w.subItems]
+            : [];
+          currentList.push(newSubItem);
+          monthlySub[targetMonth] = currentList;
+
+          const rootSub =
+            (w.month && isSameMonth(w.month, targetMonth)) || targetMonth === 'all'
+              ? currentList
+              : w.subItems || [];
+
+          return {
+            ...w,
+            subItems: rootSub,
+            monthlySubItems: monthlySub,
+          };
+        }
+        return w;
+      });
+
+      const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
+      saveDashboardToStorage(updatedDashboard);
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
+
+    setIsSavedInStorage(true);
+    showToast(`Topic "${title}" added and autosaved!`);
+  };
+
+  const handleUpdateSubItem = (
+    workItemId: string,
+    subItemId: string,
+    updates: { title?: string; note?: string }
+  ) => {
+    if (isViewOnly) return;
+    const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
+    const cleanId = workItemId.replace(/^all-/, '');
+
+    setData((prev) => {
+      const updatedWorks = prev.worksCompleted.map((w) => {
+        if (w.id === cleanId || w.id === workItemId || w.id.replace(/^all-/, '') === cleanId) {
+          const monthlySub = { ...(w.monthlySubItems || {}) };
+          const currentList = monthlySub[targetMonth]
+            ? [...monthlySub[targetMonth]]
+            : w.subItems
+            ? [...w.subItems]
+            : [];
+          const updatedList = currentList.map((item) => {
+            if (item.id === subItemId) {
+              return {
+                ...item,
+                title: updates.title !== undefined ? updates.title : item.title,
+                note: updates.note !== undefined ? updates.note : item.note,
+              };
+            }
+            return item;
+          });
+          monthlySub[targetMonth] = updatedList;
+
+          const rootSub =
+            (w.month && isSameMonth(w.month, targetMonth)) || targetMonth === 'all'
+              ? updatedList
+              : w.subItems || [];
+
+          return {
+            ...w,
+            subItems: rootSub,
+            monthlySubItems: monthlySub,
+          };
+        }
+        return w;
+      });
+
+      const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
+      saveDashboardToStorage(updatedDashboard);
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
+
+    setIsSavedInStorage(true);
+    showToast('Topic updated & autosaved!');
+  };
+
+  const handleDeleteSubItem = (workItemId: string, subItemId: string) => {
+    if (isViewOnly) return;
+    const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
+    const cleanId = workItemId.replace(/^all-/, '');
+
+    setData((prev) => {
+      const updatedWorks = prev.worksCompleted.map((w) => {
+        if (w.id === cleanId || w.id === workItemId || w.id.replace(/^all-/, '') === cleanId) {
+          const monthlySub = { ...(w.monthlySubItems || {}) };
+          const currentList = monthlySub[targetMonth]
+            ? [...monthlySub[targetMonth]]
+            : w.subItems
+            ? [...w.subItems]
+            : [];
+          const updatedList = currentList.filter((item) => item.id !== subItemId);
+          monthlySub[targetMonth] = updatedList;
+
+          const rootSub =
+            (w.month && isSameMonth(w.month, targetMonth)) || targetMonth === 'all'
+              ? updatedList
+              : w.subItems || [];
+
+          return {
+            ...w,
+            subItems: rootSub,
+            monthlySubItems: monthlySub,
+          };
+        }
+        return w;
+      });
+
+      const updatedDashboard = { ...prev, worksCompleted: updatedWorks };
+      saveDashboardToStorage(updatedDashboard);
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
+
+    setIsSavedInStorage(true);
+    showToast('Topic removed.');
+  };
+
+  const handleExportSubItemsSheet = () => {
+    downloadWorkbookWithSubItemsTab(data, selectedMonth);
+    showToast('Downloaded Google Sheets workbook with Topic Breakdown tab!');
+  };
+
   const handleExportCsv = () => {
     const currentPeriodData: DashboardData = {
       ...data,
@@ -1010,6 +1157,10 @@ export default function App() {
                 onAddWorkItem={handleAddWorkItem}
                 onUpdateWorkItem={handleUpdateWorkItem}
                 onDeleteWorkItem={handleDeleteWorkItem}
+                onAddSubItem={handleAddSubItem}
+                onUpdateSubItem={handleUpdateSubItem}
+                onDeleteSubItem={handleDeleteSubItem}
+                onExportSubItemsSheet={handleExportSubItemsSheet}
                 isViewOnly={isViewOnly}
               />
             </div>

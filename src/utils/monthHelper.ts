@@ -1,4 +1,4 @@
-import { WorkItem } from '../types';
+import { WorkItem, DeliverableSubItem } from '../types';
 
 export const MONTH_FULL_NAMES = [
   'january',
@@ -447,11 +447,25 @@ export function getWorksForSelectedMonth(
         resolvedCustomNote = w.customNote;
       }
 
+      // Month-specific sub-items / topics resolution
+      let resolvedSubItems: DeliverableSubItem[] = [];
+      if (w.monthlySubItems) {
+        for (const [m, items] of Object.entries(w.monthlySubItems)) {
+          if (isSameMonth(m, selectedMonth)) {
+            resolvedSubItems = items || [];
+            break;
+          }
+        }
+      } else if (w.month && isSameMonth(w.month, selectedMonth) && w.subItems) {
+        resolvedSubItems = w.subItems;
+      }
+
       result.push({
         ...w,
         count: monthCount,
         month: selectedMonth,
         customNote: resolvedCustomNote,
+        subItems: resolvedSubItems,
       });
     }
 

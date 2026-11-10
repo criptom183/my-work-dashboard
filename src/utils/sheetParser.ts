@@ -1079,3 +1079,144 @@ export function exportToCsv(data: DashboardData): string {
 
   return lines.join('\n');
 }
+
+/**
+ * Exports all deliverable topics and sub-categories into a clean CSV tab layout
+ * ready to paste or import as a new tab in Google Sheets.
+ */
+export function exportSubItemsToSheetTabCsv(data: DashboardData, selectedMonth?: string): string {
+  const lines: string[] = [];
+  lines.push(`Deliverable / Activity,Month,Topic Title,Topic Note,Category,Deliverable Count,Recorded At`);
+
+  const targetMonth = selectedMonth || data.selectedMonth || 'All Months';
+
+  (data.worksCompleted || []).forEach((w) => {
+    // Gather all sub-items across months or for targetMonth
+    let itemsToExport: { month: string; title: string; note?: string; createdAt?: string }[] = [];
+
+    if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
+      for (const [m, list] of Object.entries(w.monthlySubItems)) {
+        if (targetMonth === 'all' || isSameMonth(m, targetMonth)) {
+          (list || []).forEach((item) => {
+            itemsToExport.push({
+              month: m,
+              title: item.title,
+              note: item.note,
+              createdAt: item.createdAt,
+            });
+          });
+        }
+      }
+    } else if (w.subItems && w.subItems.length > 0) {
+      w.subItems.forEach((item) => {
+        itemsToExport.push({
+          month: w.month || targetMonth,
+          title: item.title,
+          note: item.note,
+          createdAt: item.createdAt,
+        });
+      });
+    }
+
+    if (itemsToExport.length > 0) {
+      itemsToExport.forEach((item) => {
+        lines.push(
+          `"${w.activity.replace(/"/g, '""')}","${item.month.replace(/"/g, '""')}","${item.title.replace(/"/g, '""')}","${(item.note || '').replace(/"/g, '""')}","${w.category}","${w.count}","${item.createdAt || ''}"`
+        );
+      });
+    } else {
+      // If no sub-items entered yet, include the deliverable row so it is visible in the sheet
+      lines.push(
+        `"${w.activity.replace(/"/g, '""')}","${w.month || targetMonth}","[No topics entered yet]","","${w.category}","${w.count}",""`
+      );
+    }
+  });
+
+  return lines.join('\n');
+}
+
+/**
+ * Downloads a multi-tab Excel workbook (.xlsx) including:
+ * 1. Summary tab
+ * 2. Dedicated "Topic Breakdown" tab for Google Sheets
+ */
+export function downloadWorkbookWithSubItemsTab(data: DashboardData, selectedMonth?: string) {
+  const wb = XLSX.utils.book_new();
+
+  // Tab 1: Deliverables Summary
+  const summaryRows = (data.worksCompleted || []).map((w, idx) => ({
+    'S.No': idx + 1,
+    'Activity': w.activity,
+    'Category': w.category,
+    'Count': w.count,
+    'Month': w.month || selectedMonth || 'Current',
+    'Custom Note': w.customNote || '',
+    'Scope': w.notes || '',
+  }));
+  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+
+  // Tab 2: Topics & Sub-Categories Breakdown
+  const targetMonth = selectedMonth || data.selectedMonth || 'All Months';
+  const breakdownRows: any[] = [];
+
+  (data.worksCompleted || []).forEach((w) => {
+    let subList: { month: string; title: string; note?: string; createdAt?: string }[] = [];
+    if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
+      for (const [m, list] of Object.entries(w.monthlySubItems)) {
+        if (targetMonth === 'all' || isSameMonth(m, targetMonth)) {
+          (list || []).forEach((item) => {
+            subList.push({
+              month: m,
+              title: item.title,
+              note: item.note,
+              createdAt: item.createdAt,
+            });
+          });
+        }
+      }
+    } else if (w.subItems && w.subItems.length > 0) {
+      w.subItems.forEach((item) => {
+        subList.push({
+          month: w.month || targetMonth,
+          title: item.title,
+          note: item.note,
+          createdAt: item.createdAt,
+        });
+      });
+    }
+
+    if (subList.length > 0) {
+      subList.forEach((st, idx) => {
+        breakdownRows.push({
+          'Deliverable': w.activity,
+          'Month': st.month,
+          'Item #': idx + 1,
+          'Topic Title': st.title,
+          'Topic Note': st.note || '',
+          'Category': w.category,
+          'Deliverable Total': w.count,
+          'Added At': st.createdAt ? new Date(st.createdAt).toLocaleDateString() : '',
+        });
+      });
+    } else {
+      breakdownRows.push({
+        'Deliverable': w.activity,
+        'Month': w.month || targetMonth,
+        'Item #': 1,
+        'Topic Title': 'No topics recorded yet',
+        'Topic Note': '',
+        'Category': w.category,
+        'Deliverable Total': w.count,
+        'Added At': '',
+      });
+    }
+  });
+
+  const wsTopics = XLSX.utils.json_to_sheet(breakdownRows);
+  XLSX.utils.book_append_sheet(wb, wsTopics, 'Topic Breakdown');
+
+  // Trigger download
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `VZone_Report_With_Topics_${dateStr}.xlsx`);
+}

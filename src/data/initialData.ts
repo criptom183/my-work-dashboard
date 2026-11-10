@@ -20,6 +20,18 @@ export const initialDashboardData: DashboardData = {
         'Oct 2026': 9,
         'Nov 2026': 12,
       },
+      subItems: [
+        { id: 'sub-reel-1', title: 'Episode 1: Fuel Sensors Live Demo', note: 'Instagram Reel + Shorts' },
+        { id: 'sub-reel-2', title: 'Episode 2: How Fleet Tracking Prevents Fuel Theft', note: 'Motion graphics overlay' },
+        { id: 'sub-reel-3', title: 'Episode 3: Driver Scorecard & Speed Alerts', note: 'Customer testimonial highlight' },
+      ],
+      monthlySubItems: {
+        'Nov 2026': [
+          { id: 'sub-reel-1', title: 'Episode 1: Fuel Sensors Live Demo', note: 'Instagram Reel + Shorts' },
+          { id: 'sub-reel-2', title: 'Episode 2: How Fleet Tracking Prevents Fuel Theft', note: 'Motion graphics overlay' },
+          { id: 'sub-reel-3', title: 'Episode 3: Driver Scorecard & Speed Alerts', note: 'Customer testimonial highlight' },
+        ],
+      },
     },
     {
       id: 'work-2',

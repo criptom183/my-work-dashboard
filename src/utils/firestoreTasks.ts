@@ -179,6 +179,8 @@ export async function saveSharedDashboardData(dashboardData: DashboardData): Pro
       if (w.highlight !== undefined) item.highlight = w.highlight;
       if (w.month !== undefined) item.month = w.month;
       if (w.monthlyBreakdown !== undefined) item.monthlyBreakdown = w.monthlyBreakdown;
+      if (w.subItems !== undefined) item.subItems = w.subItems;
+      if (w.monthlySubItems !== undefined) item.monthlySubItems = w.monthlySubItems;
       return item;
     });
 

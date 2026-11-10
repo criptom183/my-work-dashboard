@@ -2,6 +2,13 @@ export type PriorityLevel = 'High' | 'Medium' | 'Low' | 'Unset';
 export type SuggestionStatus = 'Open' | 'Under Review' | 'Approved' | 'Implemented';
 export type AuditCheckStatus = 'passed' | 'warning' | 'failed' | 'pending';
 
+export interface DeliverableSubItem {
+  id: string;
+  title: string;
+  note?: string;
+  createdAt?: string;
+}
+
 export interface WorkItem {
   id: string;
   activity: string;
@@ -13,6 +20,8 @@ export interface WorkItem {
   highlight?: boolean;
   month?: string; // e.g. 'Oct 2026' or 'September'
   monthlyBreakdown?: Record<string, number>; // e.g. { 'Aug 2026': 15, 'Sep 2026': 18, 'Oct 2026': 21 }
+  subItems?: DeliverableSubItem[];
+  monthlySubItems?: Record<string, DeliverableSubItem[]>;
 }
 
 export interface SuggestionItem {

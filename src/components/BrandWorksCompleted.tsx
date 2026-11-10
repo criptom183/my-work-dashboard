@@ -12,8 +12,13 @@ import {
   Check,
   X,
   StickyNote,
+  ChevronDown,
+  ChevronRight,
+  ListTree,
+  FileSpreadsheet,
+  CornerDownRight,
 } from 'lucide-react';
-import { WorkItem } from '../types';
+import { WorkItem, DeliverableSubItem } from '../types';
 import { isSameMonth } from '../utils/monthHelper';
 
 interface BrandWorksCompletedProps {
@@ -26,6 +31,10 @@ interface BrandWorksCompletedProps {
   onAddWorkItem: (activity: string, count: number, category: string, notes?: string) => void;
   onUpdateWorkItem?: (id: string, updates: Partial<WorkItem>) => void;
   onDeleteWorkItem?: (id: string) => void;
+  onAddSubItem?: (workItemId: string, title: string, note?: string) => void;
+  onUpdateSubItem?: (workItemId: string, subItemId: string, updates: { title?: string; note?: string }) => void;
+  onDeleteSubItem?: (workItemId: string, subItemId: string) => void;
+  onExportSubItemsSheet?: () => void;
   isViewOnly?: boolean;
 }
 
@@ -84,6 +93,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   onAddWorkItem,
   onUpdateWorkItem,
   onDeleteWorkItem,
+  onAddSubItem,
+  onUpdateSubItem,
+  onDeleteSubItem,
+  onExportSubItemsSheet,
   isViewOnly = false,
 }) => {
   const [viewMode, setViewMode] = useState<'chart' | 'trend' | 'table'>('chart');
@@ -92,6 +105,77 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   const [newCount, setNewCount] = useState('1');
   const [newCategory, setNewCategory] = useState('Social Media');
   const [newNotes, setNewNotes] = useState('');
+
+  // Collapsible sub-items state: which deliverables are expanded
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
+
+  // Draft inputs for adding a new topic per deliverable: { [workItemId]: { title: string, note: string } }
+  const [topicDrafts, setTopicDrafts] = useState<Record<string, { title: string; note: string }>>({});
+
+  // Editing state for an individual sub-item
+  const [editingSubItem, setEditingSubItem] = useState<{
+    workItemId: string;
+    subItemId: string;
+    title: string;
+    note: string;
+  } | null>(null);
+
+  // Toggle expand/collapse for a deliverable
+  const toggleExpand = (id: string) => {
+    setExpandedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const updateDraftTitle = (workItemId: string, title: string) => {
+    setTopicDrafts((prev) => ({
+      ...prev,
+      [workItemId]: {
+        title,
+        note: prev[workItemId]?.note || '',
+      },
+    }));
+  };
+
+  const updateDraftNote = (workItemId: string, note: string) => {
+    setTopicDrafts((prev) => ({
+      ...prev,
+      [workItemId]: {
+        title: prev[workItemId]?.title || '',
+        note,
+      },
+    }));
+  };
+
+  const handleAddSubTopic = (e: React.FormEvent, workItemId: string) => {
+    e.preventDefault();
+    if (isViewOnly || !onAddSubItem) return;
+    const draft = topicDrafts[workItemId];
+    if (!draft || !draft.title.trim()) return;
+
+    onAddSubItem(workItemId, draft.title.trim(), draft.note.trim() || undefined);
+
+    // Reset draft for this item
+    setTopicDrafts((prev) => ({
+      ...prev,
+      [workItemId]: { title: '', note: '' },
+    }));
+  };
+
+  const handleSaveSubItemEdit = () => {
+    if (!editingSubItem || isViewOnly || !onUpdateSubItem) return;
+    onUpdateSubItem(editingSubItem.workItemId, editingSubItem.subItemId, {
+      title: editingSubItem.title.trim(),
+      note: editingSubItem.note.trim() || undefined,
+    });
+    setEditingSubItem(null);
+  };
 
   // Inline quick-note state per work item
   const [inlineNoteId, setInlineNoteId] = useState<string | null>(null);
@@ -159,6 +243,202 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
     setInlineNoteText('');
   };
 
+  const renderTopicsPanel = (item: WorkItem) => {
+    const subList = item.subItems || [];
+    const isAdding = !isViewOnly && onAddSubItem;
+
+    return (
+      <div className="p-3.5 rounded-xl bg-slate-50/95 border border-indigo-100 shadow-2xs space-y-3 animate-in fade-in duration-150">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200/70 pb-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <ListTree className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="text-xs font-bold text-slate-800">
+              Topics & Sub-Categories
+            </span>
+            <span className="text-[10px] font-semibold text-slate-400">
+              ({subList.length} recorded • Target: {item.count})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onExportSubItemsSheet && (
+              <button
+                type="button"
+                onClick={onExportSubItemsSheet}
+                className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1 hover:underline cursor-pointer"
+                title="Autosave and download Google Sheet tab with all topics"
+              >
+                <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
+                <span>Export Sheet Tab</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => toggleExpand(item.id)}
+              className="text-[10px] font-semibold text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        {/* Existing Sub-items list */}
+        {subList.length > 0 ? (
+          <div className="space-y-1.5">
+            {subList.map((sub, idx) => {
+              const isEditingThis =
+                editingSubItem?.workItemId === item.id &&
+                editingSubItem?.subItemId === sub.id;
+
+              if (isEditingThis) {
+                return (
+                  <div
+                    key={sub.id}
+                    className="p-2.5 rounded-lg bg-white border border-indigo-300 shadow-2xs space-y-2"
+                  >
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={editingSubItem.title}
+                        onChange={(e) =>
+                          setEditingSubItem((prev) =>
+                            prev ? { ...prev, title: e.target.value } : null
+                          )
+                        }
+                        placeholder="Topic title..."
+                        className="flex-1 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                        autoFocus
+                      />
+                      <input
+                        type="text"
+                        value={editingSubItem.note}
+                        onChange={(e) =>
+                          setEditingSubItem((prev) =>
+                            prev ? { ...prev, note: e.target.value } : null
+                          )
+                        }
+                        placeholder="Short note (optional)..."
+                        className="sm:w-52 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                      />
+                    </div>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleSaveSubItemEdit}
+                        className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingSubItem(null)}
+                        className="px-2.5 py-1 rounded text-slate-500 hover:bg-slate-100 text-[11px] font-medium transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={sub.id}
+                  className="px-3 py-2 rounded-lg bg-white border border-slate-200/80 flex items-start justify-between gap-2.5 group/sub transition-colors hover:border-indigo-200"
+                >
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span className="w-4 h-4 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-800 break-words leading-snug">
+                        {sub.title}
+                      </p>
+                      {sub.note && (
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed break-words">
+                          {sub.note}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {!isViewOnly && (
+                    <div className="flex items-center gap-1 shrink-0 opacity-70 group-hover/sub:opacity-100 transition-opacity">
+                      {onUpdateSubItem && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingSubItem({
+                              workItemId: item.id,
+                              subItemId: sub.id,
+                              title: sub.title,
+                              note: sub.note || '',
+                            })
+                          }
+                          className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
+                          title="Edit topic"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      )}
+                      {onDeleteSubItem && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteSubItem(item.id, sub.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                          title="Delete topic"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 italic py-1">
+            No topics entered yet for this deliverable. You can add them one by one below.
+          </p>
+        )}
+
+        {/* Inline Add Topic form */}
+        {isAdding && (
+          <form
+            onSubmit={(e) => handleAddSubTopic(e, item.id)}
+            className="pt-2.5 border-t border-slate-200/70"
+          >
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                required
+                value={topicDrafts[item.id]?.title || ''}
+                onChange={(e) => updateDraftTitle(item.id, e.target.value)}
+                placeholder={`Topic #${subList.length + 1} title (e.g. Fuel Monitoring Video)...`}
+                className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
+              />
+              <input
+                type="text"
+                value={topicDrafts[item.id]?.note || ''}
+                onChange={(e) => updateDraftNote(item.id, e.target.value)}
+                placeholder="Short note (optional)..."
+                className="sm:w-52 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer shrink-0 shadow-2xs"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Add topic</span>
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    );
+  };
+
   const handleSaveListNote = () => {
     if (onUpdateWorkListNote) {
       onUpdateWorkListNote(listNoteDraft.trim());
@@ -185,6 +465,18 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               >
                 <StickyNote className="w-3 h-3 text-[#E11D74]" />
                 <span>{workListNote ? 'Edit list note' : '+ Add note'}</span>
+              </button>
+            )}
+
+            {onExportSubItemsSheet && (
+              <button
+                type="button"
+                onClick={onExportSubItemsSheet}
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
+                title="Export Topic Breakdown tab for Google Sheets"
+              >
+                <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
+                <span>Export Sheet Tab</span>
               </button>
             )}
           </div>
@@ -322,6 +614,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               const { icon, bg, barColor } = getActivityIcon(item.activity);
               const percentage = totalCount > 0 ? ((item.count / totalCount) * 100).toFixed(1) : '0';
               const isEditingThisNote = !isViewOnly && inlineNoteId === item.id;
+              const isExpanded = expandedItemIds.has(item.id);
 
               return (
                 <div key={item.id} className="group relative">
@@ -336,7 +629,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     {/* Middle Info & Full Width Progress Bar */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-0.5">
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
                           <h4 className="text-sm font-bold text-slate-900 truncate">
                             {item.activity}
                           </h4>
@@ -355,6 +648,34 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               <span>{item.customNote ? 'Edit note' : '+ Note'}</span>
                             </button>
                           )}
+
+                          {/* Sub-item Topics Collapsible Toggle */}
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(item.id)}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 ${
+                              isExpanded
+                                ? 'bg-[#1D1B48] text-white shadow-2xs'
+                                : item.subItems && item.subItems.length > 0
+                                ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                                : !isViewOnly
+                                ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200/80'
+                                : 'hidden'
+                            }`}
+                            title={isExpanded ? 'Collapse topic breakdown' : 'Expand topic breakdown'}
+                          >
+                            <ListTree className="w-2.5 h-2.5" />
+                            <span>
+                              {item.subItems && item.subItems.length > 0
+                                ? `${item.subItems.length} topics`
+                                : '+ Topics'}
+                            </span>
+                            {isExpanded ? (
+                              <ChevronDown className="w-2.5 h-2.5" />
+                            ) : (
+                              <ChevronRight className="w-2.5 h-2.5" />
+                            )}
+                          </button>
                         </div>
 
                         <span className="text-xs font-semibold text-slate-400 tabular-nums shrink-0">
@@ -467,6 +788,13 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                       </span>
                     </div>
                   </div>
+
+                  {/* Collapsible Topics Breakdown Panel */}
+                  {isExpanded && (
+                    <div className="mt-3 ml-0 sm:ml-14">
+                      {renderTopicsPanel(item)}
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -608,92 +936,135 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
             <tbody className="divide-y divide-slate-100">
               {visibleWorks.map((w) => {
                 const isEditingThisNote = !isViewOnly && inlineNoteId === w.id;
+                const isExpanded = expandedItemIds.has(w.id);
+
                 return (
-                  <tr key={w.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-3 font-bold text-slate-900">{w.activity}</td>
-                    <td className="py-3 px-3 text-slate-500">{w.category}</td>
-                    <td className="py-3 px-3 text-slate-600 max-w-xs">
-                      {!isViewOnly && isEditingThisNote ? (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="text"
-                            value={inlineNoteText}
-                            onChange={(e) => setInlineNoteText(e.target.value)}
-                            placeholder="Add a note..."
-                            className="flex-1 px-2 py-1 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-[#E11D74]"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') saveInlineNote(w);
-                              if (e.key === 'Escape') setInlineNoteId(null);
-                            }}
-                          />
+                  <React.Fragment key={w.id}>
+                    <tr className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-slate-900">{w.activity}</span>
                           <button
                             type="button"
-                            onClick={() => saveInlineNote(w)}
-                            className="px-2 py-1 rounded bg-[#E11D74] text-white text-[10px] font-semibold cursor-pointer"
+                            onClick={() => toggleExpand(w.id)}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 ${
+                              isExpanded
+                                ? 'bg-[#1D1B48] text-white shadow-2xs'
+                                : w.subItems && w.subItems.length > 0
+                                ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                                : !isViewOnly
+                                ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200/80'
+                                : 'hidden'
+                            }`}
+                            title={isExpanded ? 'Collapse topics' : 'Expand topics'}
                           >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setInlineNoteId(null)}
-                            className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          {w.customNote && (
-                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 border border-amber-200/80 text-[11px] font-medium text-amber-900">
-                              <StickyNote className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                              <span>{w.customNote}</span>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-slate-500">{w.notes || '—'}</span>
-                            {!isViewOnly && (
-                              <button
-                                type="button"
-                                onClick={() => openInlineNote(w)}
-                                className="text-[10px] font-semibold text-[#E11D74] hover:underline shrink-0 cursor-pointer"
-                              >
-                                {w.customNote ? 'Edit note' : '+ Note'}
-                              </button>
+                            <ListTree className="w-2.5 h-2.5" />
+                            <span>
+                              {w.subItems && w.subItems.length > 0
+                                ? `${w.subItems.length} topics`
+                                : '+ Topics'}
+                            </span>
+                            {isExpanded ? (
+                              <ChevronDown className="w-2.5 h-2.5" />
+                            ) : (
+                              <ChevronRight className="w-2.5 h-2.5" />
                             )}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-right font-extrabold text-slate-900 text-sm tabular-nums">
-                      {w.count}
-                    </td>
-                    {!isViewOnly && (
-                      <td className="py-3 px-3 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => {
-                            setEditingItem(w);
-                            setEditCount(w.count);
-                            setEditNotes(w.notes || '');
-                            setEditCustomNote(w.customNote || '');
-                          }}
-                          className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                          title="Edit count & notes"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        {onDeleteWorkItem && (
-                          <button
-                            onClick={() => onDeleteWorkItem(w.id)}
-                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors ml-1 cursor-pointer"
-                            title="Delete item"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">{w.category}</td>
+                      <td className="py-3 px-3 text-slate-600 max-w-xs">
+                        {!isViewOnly && isEditingThisNote ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={inlineNoteText}
+                              onChange={(e) => setInlineNoteText(e.target.value)}
+                              placeholder="Add a note..."
+                              className="flex-1 px-2 py-1 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-[#E11D74]"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveInlineNote(w);
+                                if (e.key === 'Escape') setInlineNoteId(null);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveInlineNote(w)}
+                              className="px-2 py-1 rounded bg-[#E11D74] text-white text-[10px] font-semibold cursor-pointer"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInlineNoteId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            {w.customNote && (
+                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 border border-amber-200/80 text-[11px] font-medium text-amber-900">
+                                <StickyNote className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                <span>{w.customNote}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-slate-500">{w.notes || '—'}</span>
+                              {!isViewOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => openInlineNote(w)}
+                                  className="text-[10px] font-semibold text-[#E11D74] hover:underline shrink-0 cursor-pointer"
+                                >
+                                  {w.customNote ? 'Edit note' : '+ Note'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </td>
+                      <td className="py-3 px-3 text-right font-extrabold text-slate-900 text-sm tabular-nums">
+                        {w.count}
+                      </td>
+                      {!isViewOnly && (
+                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => {
+                              setEditingItem(w);
+                              setEditCount(w.count);
+                              setEditNotes(w.notes || '');
+                              setEditCustomNote(w.customNote || '');
+                            }}
+                            className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                            title="Edit count & notes"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          {onDeleteWorkItem && (
+                            <button
+                              onClick={() => onDeleteWorkItem(w.id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 transition-colors ml-1 cursor-pointer"
+                              title="Delete item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+
+                    {/* Collapsible Topics Row in Table View */}
+                    {isExpanded && (
+                      <tr className="bg-slate-50/70">
+                        <td colSpan={isViewOnly ? 4 : 5} className="py-3 px-4">
+                          {renderTopicsPanel(w)}
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>
