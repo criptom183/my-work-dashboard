@@ -82,6 +82,7 @@ export interface SyncSettings {
   autoSync: boolean;
   interval: AutoSyncInterval;
   lastSyncedAt?: string;
+  webhookUrl?: string;
 }
 
 export type TaskPriority = 'High' | 'Medium' | 'Low';
