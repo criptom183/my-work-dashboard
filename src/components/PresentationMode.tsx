@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Maximize2,
@@ -7,16 +7,14 @@ import {
   ChevronRight,
   TrendingUp,
   TrendingDown,
-  Layers,
   Star,
   CheckCircle2,
   Clock,
-  ListTree,
-  ChevronDown,
-  ChevronUp,
-  PieChart,
-  Calendar,
-  Sparkles,
+  Video,
+  MessageSquare,
+  FileText,
+  Palette,
+  ExternalLink,
 } from 'lucide-react';
 import { DashboardData, WorkItem, TaskItem } from '../types';
 import { computeMoMStats, getWorksForSelectedMonth } from '../utils/monthHelper';
@@ -40,40 +38,140 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
   const [currentSlide, setCurrentSlide] = useState<number>(0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [expandedWorkId, setExpandedWorkId] = useState<string | null>(null);
+  const [activeDetailModal, setActiveDetailModal] = useState<WorkItem | null>(null);
 
   const availableMonths = data.availableMonths || ['Sep 2026', 'Oct 2026', 'Nov 2026'];
-  const currentWorks = getWorksForSelectedMonth(
-    data.worksCompleted || [],
-    selectedMonth,
-    availableMonths
-  ).filter((w) => (w.count || 0) > 0);
+  const currentWorks = useMemo(
+    () =>
+      getWorksForSelectedMonth(
+        data.worksCompleted || [],
+        selectedMonth,
+        availableMonths
+      ).filter((w) => (w.count || 0) > 0),
+    [data.worksCompleted, selectedMonth, availableMonths]
+  );
 
-  const totalDelivered = currentWorks.reduce((sum, w) => sum + w.count, 0);
-  const momStats = computeMoMStats(data.worksCompleted || [], selectedMonth, availableMonths);
+  const totalDelivered = useMemo(
+    () => currentWorks.reduce((sum, w) => sum + (w.count || 0), 0),
+    [currentWorks]
+  );
 
-  const topWork = currentWorks.length > 0
-    ? currentWorks.reduce((max, curr) => (curr.count > max.count ? curr : max), currentWorks[0])
-    : null;
+  const momStats = useMemo(
+    () => computeMoMStats(data.worksCompleted || [], selectedMonth, availableMonths),
+    [data.worksCompleted, selectedMonth, availableMonths]
+  );
 
   // Category distribution
-  const categoryTotals: Record<string, number> = {};
-  for (const w of currentWorks) {
-    const cat = w.category || 'General';
-    categoryTotals[cat] = (categoryTotals[cat] || 0) + w.count;
-  }
-  const categoriesList = Object.keys(categoryTotals);
+  const { categoryTotals, categoryList } = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const w of currentWorks) {
+      const cat = w.category || 'General';
+      totals[cat] = (totals[cat] || 0) + (w.count || 0);
+    }
+    const list = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+    return { categoryTotals: totals, categoryList: list };
+  }, [currentWorks]);
+
+  // Color mapping helper
+  const getCategoryMeta = (cat: string) => {
+    const c = cat.toLowerCase();
+    if (c.includes('video')) {
+      return {
+        name: 'Video',
+        color: '#6366F1',
+        bgPill: 'bg-[#6366F1]',
+        textPill: 'text-[#6366F1]',
+        icon: Video,
+      };
+    }
+    if (c.includes('social')) {
+      return {
+        name: 'Social',
+        color: '#E11D74',
+        bgPill: 'bg-[#E11D74]',
+        textPill: 'text-[#E11D74]',
+        icon: MessageSquare,
+      };
+    }
+    if (c.includes('market')) {
+      return {
+        name: 'Marketing',
+        color: '#F59E0B',
+        bgPill: 'bg-[#F59E0B]',
+        textPill: 'text-[#F59E0B]',
+        icon: FileText,
+      };
+    }
+    if (c.includes('design') || c.includes('web')) {
+      return {
+        name: 'Design & web',
+        color: '#10B981',
+        bgPill: 'bg-[#10B981]',
+        textPill: 'text-[#10B981]',
+        icon: Palette,
+      };
+    }
+    return {
+      name: cat,
+      color: '#8B5CF6',
+      bgPill: 'bg-[#8B5CF6]',
+      textPill: 'text-[#8B5CF6]',
+      icon: FileText,
+    };
+  };
+
+  // Sorted work items for top output streams
+  const sortedWorks = useMemo(
+    () => [...currentWorks].sort((a, b) => (b.count || 0) - (a.count || 0)),
+    [currentWorks]
+  );
+
+  const topWork = sortedWorks[0] || null;
+  const topWorksMax = sortedWorks.length > 0 ? sortedWorks[0].count : 1;
 
   // Filtered deliverables for slide 2
-  const filteredWorks = selectedCategory === 'all'
-    ? currentWorks
-    : currentWorks.filter((w) => (w.category || 'General') === selectedCategory);
+  const filteredWorks = useMemo(() => {
+    if (selectedCategory === 'all') return currentWorks;
+    return currentWorks.filter((w) => {
+      const c = (w.category || '').toLowerCase();
+      if (selectedCategory === 'video') return c.includes('video');
+      if (selectedCategory === 'social') return c.includes('social');
+      if (selectedCategory === 'marketing') return c.includes('market');
+      if (selectedCategory === 'design') return c.includes('design') || c.includes('web');
+      return (w.category || 'General') === selectedCategory;
+    });
+  }, [currentWorks, selectedCategory]);
 
-  // Active high-priority tasks
-  const pendingTasks = tasks.filter((t) => t.status !== 'completed');
-  const completedTasks = tasks.filter((t) => t.status === 'completed');
+  // Grouped works by main functions for Slide 2
+  const videoWorks = currentWorks.filter((w) => (w.category || '').toLowerCase().includes('video'));
+  const socialWorks = currentWorks.filter((w) => (w.category || '').toLowerCase().includes('social'));
+  const marketingWorks = currentWorks.filter((w) => (w.category || '').toLowerCase().includes('market'));
+  const designWorks = currentWorks.filter(
+    (w) => (w.category || '').toLowerCase().includes('design') || (w.category || '').toLowerCase().includes('web')
+  );
+  const otherWorks = currentWorks.filter(
+    (w) =>
+      !(w.category || '').toLowerCase().includes('video') &&
+      !(w.category || '').toLowerCase().includes('social') &&
+      !(w.category || '').toLowerCase().includes('market') &&
+      !(w.category || '').toLowerCase().includes('design') &&
+      !(w.category || '').toLowerCase().includes('web')
+  );
 
-  // Handle Fullscreen toggle
+  // Task lists for slide 3
+  const pendingTasks = useMemo(
+    () => tasks.filter((t) => t.status !== 'completed'),
+    [tasks]
+  );
+  const completedTasks = useMemo(
+    () => tasks.filter((t) => t.status === 'completed'),
+    [tasks]
+  );
+
+  const totalTasks = tasks.length || 1;
+  const roadmapPct = Math.round((completedTasks.length / totalTasks) * 100);
+
+  // Fullscreen toggle handler
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -86,11 +184,15 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
     }
   };
 
-  // Keyboard navigation (Esc to exit, Arrow keys to navigate slides, F for fullscreen)
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (activeDetailModal) {
+          setActiveDetailModal(null);
+        } else {
+          onClose();
+        }
       } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         setCurrentSlide((prev) => Math.min(prev + 1, 2));
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
@@ -110,26 +212,50 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('fullscreenchange', handleFsChange);
     };
-  }, [onClose]);
+  }, [onClose, activeDetailModal]);
 
-  const slideTitles = [
-    '1. Executive Performance Overview',
-    '2. Work Streams & Deliverable Details',
-    '3. Action Items & High-Priority Tasks',
+  // Stepper labels
+  const steps = [
+    { id: 0, label: '01 Executive overview' },
+    { id: 1, label: '02 Work streams & deliverables' },
+    { id: 2, label: '03 Action plan' },
   ];
 
+  // SVG Donut calculation
+  const donutRadius = 52;
+  const donutCircumference = 2 * Math.PI * donutRadius;
+  let accumulatedAngle = 0;
+
+  const donutSegments = categoryList.map((cat) => {
+    const count = categoryTotals[cat];
+    const pct = totalDelivered > 0 ? count / totalDelivered : 0;
+    const strokeDash = pct * donutCircumference;
+    const strokeOffset = -accumulatedAngle * donutCircumference;
+    accumulatedAngle += pct;
+    return {
+      category: cat,
+      count,
+      pct: Math.round(pct * 100),
+      strokeDash,
+      strokeOffset,
+      meta: getCategoryMeta(cat),
+    };
+  });
+
   return (
-    <div className="fixed inset-0 z-50 bg-[#0B091F] text-white flex flex-col overflow-hidden select-none animate-in fade-in duration-200">
-      {/* TOP PRESENTATION BAR */}
-      <header className="px-6 py-4 bg-[#141133]/90 border-b border-white/10 backdrop-blur-md flex items-center justify-between gap-4 shrink-0">
-        <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center p-1.5 shadow-md shrink-0">
+    <div className="fixed inset-0 z-50 bg-[#0B091F] text-white flex flex-col overflow-hidden select-none font-sans">
+      {/* 1. TOP PRESENTATION BAR */}
+      <header className="px-6 py-3.5 bg-[#0D0B21] border-b border-[#211D44] flex items-center justify-between gap-4 shrink-0">
+        {/* Left: VZone Brand and Meeting Mode Badge */}
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-1.5 shadow-md shrink-0">
             <img
               src={vzoneLogo}
               alt="VZone International"
               className="w-full h-full object-contain filter drop-shadow-sm"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = './assets/aistudio/IMG_20260814_221842-removebg-preview_882c4c65.png';
+                (e.target as HTMLImageElement).src =
+                  './assets/aistudio/IMG_20260814_221842-removebg-preview_882c4c65.png';
               }}
             />
           </div>
@@ -138,26 +264,27 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
               <span className="font-extrabold text-sm sm:text-base tracking-wide text-white">
                 VZONE MARKETING
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-[#E11D74]/20 text-[#E11D74] border border-[#E11D74]/30">
-                Meeting Mode
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-[#E11D74]/20 text-[#FF2D8D] border border-[#E11D74]/50">
+                MEETING MODE
               </span>
             </div>
-            <p className="text-[11px] text-indigo-200/70 hidden sm:block">
-              Client &amp; Executive Review • {selectedMonth === 'all' ? 'All Months Overview' : selectedMonth}
+            <p className="text-[11px] text-[#8E8CAE] font-medium hidden sm:block">
+              Client &amp; Executive Review ·{' '}
+              {selectedMonth === 'all' ? 'All Months Overview' : selectedMonth}
             </p>
           </div>
         </div>
 
         {/* Center: Month Selector Pills */}
-        <div className="hidden md:flex items-center p-1 rounded-full bg-white/5 border border-white/10 text-xs">
+        <div className="flex items-center p-1 rounded-full bg-[#171433] border border-[#2B2555] text-xs">
           {availableMonths.map((m) => (
             <button
               key={m}
               onClick={() => onSelectMonth(m)}
-              className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-full font-bold transition-all cursor-pointer ${
                 selectedMonth === m
-                  ? 'bg-[#E11D74] text-white shadow-xs'
-                  : 'text-indigo-200/70 hover:text-white'
+                  ? 'bg-[#E11D74] text-white shadow-sm'
+                  : 'text-slate-300 hover:text-white'
               }`}
             >
               {m}
@@ -165,452 +292,842 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
           ))}
           <button
             onClick={() => onSelectMonth('all')}
-            className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer ${
+            className={`px-3.5 py-1.5 rounded-full font-bold transition-all cursor-pointer ${
               selectedMonth === 'all'
-                ? 'bg-[#E11D74] text-white shadow-xs'
-                : 'text-indigo-200/70 hover:text-white'
+                ? 'bg-[#E11D74] text-white shadow-sm'
+                : 'text-slate-300 hover:text-white'
             }`}
           >
-            All Months
+            All months
           </button>
         </div>
 
-        {/* Right Tools: Fullscreen + Close */}
+        {/* Right Tools: Fullscreen + Exit */}
         <div className="flex items-center gap-2">
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-indigo-200 hover:text-white border border-white/10 transition-colors cursor-pointer"
+            className="w-9 h-9 rounded-xl bg-[#171433] hover:bg-[#201C46] border border-[#2B2555] text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
             title={isFullscreen ? 'Exit Fullscreen (F)' : 'Enter Fullscreen (F)'}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
           <button
             onClick={onClose}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-semibold text-xs transition-colors cursor-pointer"
+            className="px-3.5 py-1.5 rounded-xl bg-[#241328] hover:bg-[#341838] border border-pink-500/30 text-pink-200 hover:text-white flex items-center gap-2 text-xs font-bold transition-colors cursor-pointer"
             title="Exit Presentation Mode (Esc)"
           >
-            <X className="w-4 h-4" />
-            <span className="hidden sm:inline">Exit (Esc)</span>
+            <X className="w-3.5 h-3.5 text-pink-300" />
+            <span>Exit</span>
+            <span className="text-[10px] text-pink-300/60 font-mono">Esc</span>
           </button>
         </div>
       </header>
 
-      {/* MAIN SLIDE CONTENT */}
-      <main className="flex-1 overflow-y-auto p-6 sm:p-8 lg:p-10 max-w-[1400px] w-full mx-auto flex flex-col justify-center">
+      {/* 2. PROGRESS STEPPER NAVIGATION UNDERLINE */}
+      <nav className="px-8 pt-3 pb-1 bg-[#0D0B21] border-b border-[#211D44] shrink-0">
+        <div className="grid grid-cols-3 gap-6 max-w-[1400px] mx-auto">
+          {steps.map((s) => {
+            const isActive = currentSlide === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setCurrentSlide(s.id)}
+                className="group text-left cursor-pointer transition-all"
+              >
+                <div
+                  className={`text-xs font-bold tracking-wide transition-colors ${
+                    isActive ? 'text-white' : 'text-[#7E76B5] group-hover:text-slate-200'
+                  }`}
+                >
+                  {s.label}
+                </div>
+                <div
+                  className={`mt-2 rounded-full transition-all duration-300 ${
+                    isActive ? 'h-1 bg-[#E11D74]' : 'h-0.5 bg-[#231F47] group-hover:bg-[#352F66]'
+                  }`}
+                />
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* 3. MAIN SLIDE CONTENT AREA */}
+      <main className="flex-1 overflow-y-auto p-6 sm:p-8 lg:p-10 max-w-[1440px] w-full mx-auto flex flex-col justify-center">
+        {/* ============================================================== */}
         {/* SLIDE 0: EXECUTIVE OVERVIEW */}
+        {/* ============================================================== */}
         {currentSlide === 0 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* Header Title */}
-            <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 mb-2">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Executive Performance Summary</span>
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Slide Header */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-widest text-[#7E76B5] mb-1.5">
+                  EXECUTIVE PERFORMANCE SUMMARY
+                </p>
+                <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight leading-none">
+                  {selectedMonth === 'all' ? 'All Months ' : `${selectedMonth} `}
+                  <span className="text-[#E11D74]">performance</span>
+                </h1>
+                <p className="text-sm text-slate-400 mt-2 max-w-2xl">
+                  Deliverable throughput, month-on-month velocity and how output was split across functions.
+                </p>
               </div>
-              <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white">
-                {selectedMonth === 'all' ? 'Cumulative Marketing Output' : `${selectedMonth} Performance Report`}
-              </h1>
-              <p className="text-sm sm:text-base text-indigo-200/70 mt-1">
-                High-level deliverable throughput, growth velocity, and functional output distribution.
-              </p>
+
+              {/* Status pill on right */}
+              <div className="bg-[#141D2E] border border-emerald-500/30 text-emerald-400 px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 self-start md:self-auto shrink-0 shadow-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                <span>Reporting period closed</span>
+              </div>
             </div>
 
-            {/* 3 Executive Hero Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {/* Card 1: Total Volume */}
-              <div className="p-6 rounded-2xl bg-gradient-to-br from-[#1E194D] to-[#151238] border border-white/10 shadow-xl relative overflow-hidden flex flex-col justify-between">
+            {/* 3 Hero Metric Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Card 1: Total Deliverables Completed */}
+              <div className="bg-[#131131] border border-[#272352] rounded-2xl p-6 flex flex-col justify-between shadow-xl min-h-[380px]">
                 <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-300/80">
-                      Total Deliverables Completed
-                    </span>
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                  </div>
-                  <div className="flex items-baseline gap-2.5 mt-3">
-                    <span className="text-5xl sm:text-6xl font-black text-white tracking-tight">
+                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#7E76B5]">
+                    TOTAL DELIVERABLES COMPLETED
+                  </p>
+                  <div className="flex items-baseline mt-3">
+                    <span className="text-6xl sm:text-7xl font-black text-white tracking-tight">
                       {totalDelivered}
                     </span>
-                    <span className="text-base font-semibold text-indigo-200/70">items delivered</span>
+                    <span className="text-base text-slate-300 font-medium ml-3">
+                      units delivered
+                    </span>
+                  </div>
+
+                  {/* MoM Velocity Pill */}
+                  <div className="mt-4 flex items-center gap-2">
+                    {momStats.percentChange !== null ? (
+                      <>
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                            momStats.percentChange >= 0
+                              ? 'bg-emerald-950/40 border border-emerald-500/30 text-emerald-300'
+                              : 'bg-rose-950/40 border border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          {momStats.percentChange >= 0 ? (
+                            <TrendingUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <TrendingDown className="w-3.5 h-3.5" />
+                          )}
+                          <span>
+                            {momStats.percentChange >= 0 ? '+' : ''}
+                            {momStats.percentChange.toFixed(1)}%
+                          </span>
+                        </span>
+                        <span className="text-xs text-slate-400 font-medium">
+                          vs {momStats.prevMonth}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-slate-400">Baseline tracking period</span>
+                    )}
                   </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
-                  <span className="text-xs text-indigo-200/70">
-                    Across {currentWorks.length} active deliverables
+                {/* Bottom 3-column stats */}
+                <div className="pt-6 border-t border-[#231F47] grid grid-cols-3 gap-3">
+                  <div>
+                    <div className="text-2xl font-black text-white">{currentWorks.length}</div>
+                    <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                      Work streams
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-black text-white">{categoryList.length}</div>
+                    <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                      Functions
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-black text-white">{pendingTasks.length}</div>
+                    <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                      Open actions
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2: Functional Output Mix */}
+              <div className="bg-[#131131] border border-[#272352] rounded-2xl p-6 flex flex-col justify-between shadow-xl min-h-[380px]">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#7E76B5]">
+                    FUNCTIONAL OUTPUT MIX
+                  </p>
+                  <span className="text-xs text-slate-400 font-medium">
+                    {categoryList.length} functions
                   </span>
-                  {momStats.percentChange !== null && (
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold ${
-                        momStats.percentChange >= 0
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                      }`}
+                </div>
+
+                {/* Center SVG Donut Chart */}
+                <div className="my-2 flex items-center justify-center">
+                  <div className="relative w-36 h-36">
+                    <svg viewBox="0 0 140 140" className="w-full h-full -rotate-90 transform">
+                      <circle
+                        cx="70"
+                        cy="70"
+                        r={donutRadius}
+                        fill="transparent"
+                        stroke="#1D1A40"
+                        strokeWidth="18"
+                      />
+                      {donutSegments.map((seg) => (
+                        <circle
+                          key={seg.category}
+                          cx="70"
+                          cy="70"
+                          r={donutRadius}
+                          fill="transparent"
+                          stroke={seg.meta.color}
+                          strokeWidth="18"
+                          strokeDasharray={`${seg.strokeDash} ${donutCircumference}`}
+                          strokeDashoffset={seg.strokeOffset}
+                          className="transition-all duration-500"
+                        />
+                      ))}
+                    </svg>
+                    {/* Centered text inside donut */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                      <span className="text-2xl font-black text-white tracking-tight leading-none">
+                        {totalDelivered}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-medium mt-0.5">
+                        units
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Legend list below */}
+                <div className="space-y-2 pt-2 border-t border-[#231F47]">
+                  {donutSegments.slice(0, 4).map((seg) => (
+                    <div
+                      key={seg.category}
+                      className="flex items-center justify-between text-xs"
                     >
-                      {momStats.percentChange >= 0 ? (
-                        <TrendingUp className="w-3.5 h-3.5" />
-                      ) : (
-                        <TrendingDown className="w-3.5 h-3.5" />
-                      )}
-                      <span>
-                        {momStats.percentChange >= 0 ? '+' : ''}
-                        {momStats.percentChange.toFixed(1)}% vs {momStats.prevMonth}
-                      </span>
-                    </span>
-                  )}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-xs shrink-0"
+                          style={{ backgroundColor: seg.meta.color }}
+                        />
+                        <span className="font-semibold text-slate-200">{seg.category}</span>
+                      </div>
+                      <div className="flex items-center gap-3 tabular-nums">
+                        <span className="font-bold text-white">{seg.count}</span>
+                        <span className="text-slate-400 w-8 text-right font-medium">
+                          {seg.pct}%
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Card 2: Top Deliverable */}
-              <div className="p-6 rounded-2xl bg-gradient-to-br from-[#24133A] to-[#180E2B] border border-pink-500/20 shadow-xl flex flex-col justify-between">
+              {/* Card 3: Highest Output Streams */}
+              <div className="bg-[#131131] border border-[#272352] rounded-2xl p-6 flex flex-col justify-between shadow-xl min-h-[380px]">
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-pink-300/80">
-                      Highest Output Stream
-                    </span>
-                    <Star className="w-4 h-4 text-[#E11D74] fill-[#E11D74]/30" />
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#7E76B5]">
+                      HIGHEST OUTPUT STREAMS
+                    </p>
+                    <Star className="w-4 h-4 text-[#E11D74]" />
                   </div>
-                  <div className="mt-3">
-                    <div className="text-3xl sm:text-4xl font-black text-white truncate">
-                      {topWork ? topWork.activity : 'N/A'}
-                    </div>
-                    <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-2xl font-extrabold text-[#E11D74]">
-                        {topWork ? topWork.count : 0} units
-                      </span>
-                      <span className="text-xs text-indigo-200/60 font-medium">
-                        ({topWork && totalDelivered > 0 ? ((topWork.count / totalDelivered) * 100).toFixed(0) : 0}% of output)
-                      </span>
-                    </div>
+
+                  {/* Highlight headline */}
+                  <div className="mt-4">
+                    <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">
+                      {topWork ? topWork.activity : 'No deliverables'}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      <span className="text-[#E11D74] font-bold">
+                        {topWork ? `${topWork.count} units each` : '0 units'}
+                      </span>{' '}
+                      ·{' '}
+                      {topWork && totalDelivered > 0
+                        ? `${Math.round((topWork.count / totalDelivered) * 100)}% of output apiece`
+                        : '0%'}{' '}
+                      · {topWork?.category || 'General'}
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-white/10 text-xs text-indigo-200/70">
-                  Category: <strong className="text-white">{topWork?.category || 'General'}</strong>
+                {/* Progress bars list for top streams */}
+                <div className="mt-5 space-y-3 pt-3 border-t border-[#231F47]">
+                  {sortedWorks.slice(0, 4).map((w) => {
+                    const meta = getCategoryMeta(w.category || 'General');
+                    const barWidth = Math.max(
+                      10,
+                      Math.round(((w.count || 0) / topWorksMax) * 100)
+                    );
+
+                    return (
+                      <div key={w.id} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-200 truncate pr-2">
+                            {w.activity}
+                          </span>
+                          <span className="font-bold text-white tabular-nums">{w.count}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-[#1C183E] overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${barWidth}%`,
+                              backgroundColor: meta.color,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
 
-              {/* Card 3: Output Mix Summary */}
-              <div className="p-6 rounded-2xl bg-gradient-to-br from-[#1A1844] to-[#110F2E] border border-white/10 shadow-xl flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-300/80">
-                      Functional Output Mix
-                    </span>
-                    <PieChart className="w-4 h-4 text-indigo-400" />
+        {/* ============================================================== */}
+        {/* SLIDE 1: WORK STREAMS & DELIVERABLES */}
+        {/* ============================================================== */}
+        {currentSlide === 1 && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header + Category Tabs */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-widest text-[#7E76B5] mb-1">
+                  {currentWorks.length} WORK STREAMS · {totalDelivered} UNITS
+                </p>
+                <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+                  Work streams &amp; deliverables
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                  Every unit completed in {selectedMonth === 'all' ? 'all months' : selectedMonth}, grouped by function.
+                </p>
+              </div>
+
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={() => setSelectedCategory('all')}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                    selectedCategory === 'all'
+                      ? 'bg-[#6366F1] text-white shadow-sm'
+                      : 'bg-[#171433] border border-[#2B2555] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  All {totalDelivered}
+                </button>
+                <button
+                  onClick={() => setSelectedCategory('video')}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                    selectedCategory === 'video'
+                      ? 'bg-[#6366F1] text-white shadow-sm'
+                      : 'bg-[#171433] border border-[#2B2555] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-xs bg-[#6366F1]" />
+                  <span>Video {categoryTotals['Video production'] || 0}</span>
+                </button>
+                <button
+                  onClick={() => setSelectedCategory('social')}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                    selectedCategory === 'social'
+                      ? 'bg-[#E11D74] text-white shadow-sm'
+                      : 'bg-[#171433] border border-[#2B2555] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-xs bg-[#E11D74]" />
+                  <span>Social {categoryTotals['Social media'] || 0}</span>
+                </button>
+                <button
+                  onClick={() => setSelectedCategory('marketing')}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                    selectedCategory === 'marketing'
+                      ? 'bg-[#F59E0B] text-white shadow-sm'
+                      : 'bg-[#171433] border border-[#2B2555] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-xs bg-[#F59E0B]" />
+                  <span>Marketing {categoryTotals['Marketing'] || 0}</span>
+                </button>
+                <button
+                  onClick={() => setSelectedCategory('design')}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                    selectedCategory === 'design'
+                      ? 'bg-[#10B981] text-white shadow-sm'
+                      : 'bg-[#171433] border border-[#2B2555] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-xs bg-[#10B981]" />
+                  <span>Design &amp; web {categoryTotals['Design & web'] || 0}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 2-Column Grouped Layout matching design */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-h-[64vh] overflow-y-auto pr-1">
+              {/* Column 1: Video Production */}
+              {(selectedCategory === 'all' || selectedCategory === 'video') && (
+                <div className="bg-[#131131] border border-[#272352] rounded-2xl p-6 shadow-xl space-y-5">
+                  {/* Category Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-[#231F47]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <Video className="w-4 h-4" />
+                      </div>
+                      <h3 className="text-lg font-bold text-white">Video production</h3>
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-2xl font-black text-white">
+                        {categoryTotals['Video production'] || 0}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">
+                        {totalDelivered > 0
+                          ? `${Math.round(((categoryTotals['Video production'] || 0) / totalDelivered) * 100)}%`
+                          : '0%'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-3 space-y-2">
-                    {categoriesList.slice(0, 3).map((cat) => {
-                      const count = categoryTotals[cat];
-                      const pct = totalDelivered > 0 ? ((count / totalDelivered) * 100).toFixed(0) : 0;
+
+                  {/* Deliverables rows */}
+                  <div className="space-y-4">
+                    {videoWorks.map((w) => {
+                      const count = w.count || 0;
+                      const subItems = w.subItems || [];
+                      const barWidth = Math.max(10, Math.round((count / topWorksMax) * 100));
+
                       return (
-                        <div key={cat} className="space-y-1">
-                          <div className="flex justify-between text-xs font-semibold">
-                            <span className="text-slate-200 truncate">{cat}</span>
-                            <span className="text-indigo-300 tabular-nums">
-                              {count} ({pct}%)
-                            </span>
+                        <div key={w.id} className="flex items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-400">
+                              {w.customNote && <span>{w.customNote}</span>}
+                              {w.customNote && subItems.length > 0 && <span>·</span>}
+                              {subItems.length > 0 && (
+                                <button
+                                  onClick={() => setActiveDetailModal(w)}
+                                  className="text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
+                                >
+                                  {subItems.length} {subItems.length === 1 ? 'detail' : 'details'} ›
+                                </button>
+                              )}
+                              {w.activity.toLowerCase().includes('reel') && count > 2 && (
+                                <span className="bg-amber-950/40 border border-amber-500/40 text-amber-300 text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                                  ● Approval pending
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-indigo-500 to-[#E11D74] rounded-full"
-                              style={{ width: `${pct}%` }}
-                            />
+
+                          {/* Bar + Count */}
+                          <div className="flex items-center gap-3 shrink-0 w-32 sm:w-44">
+                            <div className="flex-1 h-2 rounded-full bg-[#1C183E] overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-[#6366F1]"
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                            <span className="font-bold text-white text-sm w-4 text-right tabular-nums">
+                              {count}
+                            </span>
                           </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
+              )}
 
-                <div className="mt-4 pt-3 border-t border-white/10 text-xs text-indigo-200/70">
-                  Total Categories: <strong className="text-white">{categoriesList.length} operational areas</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Note banner if available */}
-            {data.workListNotes?.[`works_${selectedMonth}`] && (
-              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs sm:text-sm flex items-start gap-2.5">
-                <span className="font-bold text-amber-300 shrink-0">Meeting Note:</span>
-                <span>{data.workListNotes[`works_${selectedMonth}`]}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* SLIDE 1: DELIVERABLES & DETAIL BREAKDOWN */}
-        {currentSlide === 1 && (
-          <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* Header + Category Filter */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
-                  Work Streams &amp; Deliverables
-                </h2>
-                <p className="text-xs sm:text-sm text-indigo-200/70 mt-0.5">
-                  Detailed view of individual work units completed in {selectedMonth}.
-                </p>
-              </div>
-
-              {/* Category Filter Pills */}
-              <div className="flex items-center gap-1.5 flex-wrap p-1 rounded-xl bg-white/5 border border-white/10 text-xs">
-                <button
-                  onClick={() => setSelectedCategory('all')}
-                  className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                    selectedCategory === 'all'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-indigo-200/70 hover:text-white'
-                  }`}
-                >
-                  All ({currentWorks.length})
-                </button>
-                {categoriesList.map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                      selectedCategory === cat
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-indigo-200/70 hover:text-white'
-                    }`}
-                  >
-                    {cat} ({categoryTotals[cat]})
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Deliverables Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[60vh] overflow-y-auto pr-1">
-              {filteredWorks.map((w) => {
-                const isExpanded = expandedWorkId === w.id;
-                const subList = w.subItems || [];
-
-                return (
-                  <div
-                    key={w.id}
-                    className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-indigo-400/40 transition-all flex flex-col justify-between group shadow-sm"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-400/20">
-                          {w.category || 'General'}
+              {/* Column 2: Social Media + Marketing + Design */}
+              <div className="space-y-6">
+                {/* Social media card */}
+                {(selectedCategory === 'all' || selectedCategory === 'social') && (
+                  <div className="bg-[#131131] border border-[#272352] rounded-2xl p-6 shadow-xl space-y-5">
+                    <div className="flex items-center justify-between pb-3 border-b border-[#231F47]">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-[#E11D74]">
+                          <MessageSquare className="w-4 h-4" />
+                        </div>
+                        <h3 className="text-lg font-bold text-white">Social media</h3>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-2xl font-black text-white">
+                          {categoryTotals['Social media'] || 0}
                         </span>
-                        <span className="text-xl font-black text-white tabular-nums">
-                          {w.count}
+                        <span className="text-xs text-slate-400 font-medium">
+                          {totalDelivered > 0
+                            ? `${Math.round(((categoryTotals['Social media'] || 0) / totalDelivered) * 100)}%`
+                            : '0%'}
                         </span>
                       </div>
+                    </div>
 
-                      <h3 className="text-base font-bold text-white leading-snug group-hover:text-pink-300 transition-colors">
-                        {w.activity}
-                      </h3>
+                    <div className="space-y-4">
+                      {socialWorks.map((w) => {
+                        const count = w.count || 0;
+                        const subItems = w.subItems || [];
+                        const barWidth = Math.max(10, Math.round((count / topWorksMax) * 100));
 
-                      {w.customNote && (
-                        <p className="text-xs text-amber-200/90 mt-1 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
-                          {w.customNote}
-                        </p>
-                      )}
-
-                      {/* Detail sub-items if expanded */}
-                      {isExpanded && subList.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-white/10 space-y-1.5 animate-in fade-in duration-150">
-                          <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider block">
-                            Recorded Details ({subList.length})
-                          </span>
-                          {subList.map((s, idx) => (
-                            <div
-                              key={s.id || idx}
-                              className="px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/5 text-xs text-slate-200 flex items-start justify-between gap-2"
-                            >
-                              <div className="min-w-0">
-                                <span className="font-semibold text-white block truncate">
-                                  {idx + 1}. {s.title}
-                                </span>
-                                {s.note && (
-                                  <span className="text-[11px] text-indigo-200/70 block truncate">
-                                    {s.note}
-                                  </span>
+                        return (
+                          <div key={w.id} className="flex items-center justify-between gap-4">
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
+                              <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-400">
+                                {w.customNote ? (
+                                  <span>{w.customNote}</span>
+                                ) : (
+                                  <span>Optimised posts for Google Business listing</span>
+                                )}
+                                {subItems.length > 0 && (
+                                  <>
+                                    <span>·</span>
+                                    <button
+                                      onClick={() => setActiveDetailModal(w)}
+                                      className="text-pink-400 hover:text-pink-300 font-semibold cursor-pointer"
+                                    >
+                                      {subItems.length} {subItems.length === 1 ? 'detail' : 'details'} ›
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
 
-                    {/* Bottom toggle for details */}
-                    {subList.length > 0 && (
-                      <button
-                        onClick={() => setExpandedWorkId(isExpanded ? null : w.id)}
-                        className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-xs font-semibold text-indigo-300 hover:text-white cursor-pointer w-full"
-                      >
-                        <span className="inline-flex items-center gap-1.5">
-                          <ListTree className="w-3.5 h-3.5 text-[#E11D74]" />
-                          <span>More Details ({subList.length})</span>
-                        </span>
-                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
+                            <div className="flex items-center gap-3 shrink-0 w-32 sm:w-44">
+                              <div className="flex-1 h-2 rounded-full bg-[#1C183E] overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-[#E11D74]"
+                                  style={{ width: `${barWidth}%` }}
+                                />
+                              </div>
+                              <span className="font-bold text-white text-sm w-4 text-right tabular-nums">
+                                {count}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                );
-              })}
+                )}
+
+                {/* Marketing & Design Cards stacked */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Marketing */}
+                  {(selectedCategory === 'all' || selectedCategory === 'marketing') && (
+                    <div className="bg-[#131131] border border-[#272352] rounded-2xl p-5 shadow-xl space-y-4">
+                      <div className="flex items-center justify-between pb-2 border-b border-[#231F47]">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-xs bg-[#F59E0B]" />
+                          <h4 className="font-bold text-white text-sm">Marketing</h4>
+                        </div>
+                        <span className="text-xl font-black text-white">
+                          {categoryTotals['Marketing'] || 0}
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {marketingWorks.map((w) => (
+                          <div key={w.id} className="text-xs">
+                            <span className="font-bold text-white block">{w.activity}</span>
+                            <div className="text-slate-400 mt-0.5 flex items-center gap-1.5">
+                              <span>{w.count} units</span>
+                              {w.subItems && w.subItems.length > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <button
+                                    onClick={() => setActiveDetailModal(w)}
+                                    className="text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
+                                  >
+                                    {w.subItems.length} detail ›
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Design & web */}
+                  {(selectedCategory === 'all' || selectedCategory === 'design') && (
+                    <div className="bg-[#131131] border border-[#272352] rounded-2xl p-5 shadow-xl space-y-4">
+                      <div className="flex items-center justify-between pb-2 border-b border-[#231F47]">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-xs bg-[#10B981]" />
+                          <h4 className="font-bold text-white text-sm">Design &amp; web</h4>
+                        </div>
+                        <span className="text-xl font-black text-white">
+                          {categoryTotals['Design & web'] || 0}
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {designWorks.map((w) => (
+                          <div key={w.id} className="text-xs">
+                            <span className="font-bold text-white block">{w.activity}</span>
+                            <p className="text-slate-400 mt-0.5 leading-snug">
+                              {w.customNote || 'Unit = hours. Websites found for NAP listing.'}
+                            </p>
+                            <div className="mt-2">
+                              <span className="bg-amber-950/40 border border-amber-500/40 text-amber-300 text-[10px] font-semibold px-2 py-0.5 rounded-full inline-block">
+                                ● Bahrain details pending
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* SLIDE 2: ACTION ITEMS & TASKS */}
+        {/* ============================================================== */}
+        {/* SLIDE 2: ACTION PLAN */}
+        {/* ============================================================== */}
         {currentSlide === 2 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-pink-500/20 text-pink-300 border border-pink-400/30 mb-2">
-                <Clock className="w-3.5 h-3.5 text-pink-400" />
-                <span>Next Steps &amp; Execution Roadmap</span>
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header + Roadmap Progress Widget */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-widest text-[#7E76B5] mb-1">
+                  NEXT STEPS &amp; EXECUTION ROADMAP
+                </p>
+                <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+                  Active tasks &amp; action plan
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                  Deliverables in progress and milestones ready for client review.
+                </p>
               </div>
-              <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
-                Active Tasks &amp; Action Plan
-              </h2>
-              <p className="text-sm sm:text-base text-indigo-200/70 mt-1">
-                Prioritized marketing deliverables, in-progress tasks, and upcoming deadlines.
-              </p>
+
+              {/* Roadmap Progress Box */}
+              <div className="bg-[#131131] border border-[#272352] rounded-2xl px-5 py-3.5 flex items-center justify-between gap-6 shadow-xl shrink-0">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-slate-400 font-semibold">Roadmap progress</span>
+                    <span className="font-bold text-white">
+                      {completedTasks.length} of {totalTasks} done
+                    </span>
+                  </div>
+                  {/* Multi-segment bar */}
+                  <div className="flex items-center gap-1 w-44">
+                    <div
+                      className="h-2 rounded-full bg-emerald-500 transition-all"
+                      style={{
+                        width: `${Math.max(15, (completedTasks.length / totalTasks) * 100)}%`,
+                      }}
+                    />
+                    <div
+                      className="h-2 rounded-full bg-amber-500 transition-all flex-1"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-emerald-400" />
+                      <span>Done {completedTasks.length}</span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-amber-400" />
+                      <span>In progress {pendingTasks.length}</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-4xl font-black text-white tracking-tight tabular-nums">
+                  {roadmapPct}%
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-h-[60vh] overflow-y-auto pr-1">
-              {/* Left Column: Pending / In Progress */}
-              <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-3">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-amber-400" />
-                    <span className="font-extrabold text-sm text-white">
-                      In Progress &amp; Planned ({pendingTasks.length})
-                    </span>
-                  </div>
-                  <span className="text-xs text-indigo-200/60 font-semibold">Immediate Priority</span>
+            {/* 2-Column Action Plan Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-h-[64vh] overflow-y-auto pr-1">
+              {/* Left Column: In Progress & Planned */}
+              <div className="bg-[#131131] border border-[#272352] rounded-2xl p-6 shadow-xl space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b border-[#231F47]">
+                  <Clock className="w-4 h-4 text-amber-400" />
+                  <h3 className="font-bold text-white text-base">
+                    In progress &amp; planned · {pendingTasks.length}
+                  </h3>
                 </div>
 
-                {pendingTasks.length > 0 ? (
-                  <div className="space-y-2.5">
-                    {pendingTasks.slice(0, 6).map((t) => (
-                      <div
-                        key={t.id}
-                        className="p-3 rounded-xl bg-white/5 border border-white/10 flex items-start justify-between gap-3 hover:border-amber-400/30 transition-colors"
-                      >
-                        <div className="min-w-0">
-                          <h4 className="text-sm font-bold text-white truncate">{t.title}</h4>
-                          {t.description && (
-                            <p className="text-xs text-indigo-200/70 mt-0.5 line-clamp-1">{t.description}</p>
-                          )}
-                          <div className="flex items-center gap-2 mt-2 flex-wrap">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              {t.priority}
-                            </span>
-                            {t.assignedTo && (
-                              <span className="text-[11px] text-slate-300 font-medium">
-                                Assigned: {t.assignedTo}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {t.dueDate && (
-                          <span className="text-[11px] text-indigo-300 font-semibold shrink-0 bg-white/5 px-2 py-1 rounded">
-                            Due {t.dueDate}
-                          </span>
-                        )}
+                <div className="space-y-3">
+                  {pendingTasks.map((t, idx) => (
+                    <div
+                      key={t.id}
+                      className="bg-[#171438] border border-[#2B2655] rounded-xl p-4 flex items-center gap-4 hover:border-amber-500/30 transition-all"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-white/10 text-white font-black text-xs flex items-center justify-center shrink-0">
+                        {idx + 1}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400 italic py-4">No active pending tasks recorded.</p>
-                )}
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-bold text-sm text-white truncate">{t.title}</h4>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="flex items-center gap-1.5 text-xs text-amber-300 font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                            <span>In progress</span>
+                          </span>
+                          {t.assignedTo && (
+                            <span className="text-xs text-slate-400">· {t.assignedTo}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {pendingTasks.length === 0 && (
+                    <p className="text-xs text-slate-400 italic py-6 text-center">
+                      All action items completed.
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* Right Column: Completed Highlights */}
-              <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-3">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span className="font-extrabold text-sm text-white">
-                      Completed Milestones ({completedTasks.length})
-                    </span>
-                  </div>
-                  <span className="text-xs text-emerald-400 font-semibold">Ready for Review</span>
+              {/* Right Column: Completed */}
+              <div className="bg-[#131131] border border-emerald-500/40 rounded-2xl p-6 shadow-xl space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b border-[#231F47]">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <h3 className="font-bold text-emerald-400 text-base">
+                    Completed · {completedTasks.length}
+                  </h3>
                 </div>
 
-                {completedTasks.length > 0 ? (
-                  <div className="space-y-2.5">
-                    {completedTasks.slice(0, 6).map((t) => (
-                      <div
-                        key={t.id}
-                        className="p-3 rounded-xl bg-white/5 border border-white/10 flex items-start justify-between gap-3 opacity-80"
-                      >
-                        <div className="min-w-0">
-                          <h4 className="text-sm font-bold text-slate-200 line-through truncate">{t.title}</h4>
-                          <span className="text-[11px] text-emerald-300 mt-1 inline-flex items-center gap-1 font-semibold">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                            <span>Done</span>
-                          </span>
-                        </div>
-                        {t.assignedTo && (
-                          <span className="text-[11px] text-slate-400 shrink-0 font-medium">
-                            {t.assignedTo}
-                          </span>
-                        )}
+                <div className="space-y-3">
+                  {completedTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="bg-[#171438] border border-[#2B2655] rounded-xl p-4 flex items-center justify-between gap-4"
+                    >
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm text-white truncate">{t.title}</h4>
+                        <span className="flex items-center gap-1.5 text-xs text-emerald-300 font-medium mt-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span>Done</span>
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400 italic py-4">Completed items will appear here.</p>
-                )}
+                      <span className="border border-emerald-500/40 bg-emerald-950/40 text-emerald-400 text-[10px] font-extrabold uppercase px-3 py-1 rounded-full shrink-0 tracking-wider">
+                        READY FOR REVIEW
+                      </span>
+                    </div>
+                  ))}
+                  {completedTasks.length === 0 && (
+                    <p className="text-xs text-slate-400 italic py-4 text-center">
+                      No completed tasks in this view.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* BOTTOM SLIDE CONTROLLER FOOTER */}
-      <footer className="px-6 py-4 bg-[#141133]/90 border-t border-white/10 backdrop-blur-md flex items-center justify-between gap-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCurrentSlide((prev) => Math.max(prev - 1, 0))}
-            disabled={currentSlide === 0}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 text-white font-bold text-xs transition-colors cursor-pointer"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Previous</span>
-          </button>
-          <button
-            onClick={() => setCurrentSlide((prev) => Math.min(prev + 1, 2))}
-            disabled={currentSlide === 2}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#E11D74] hover:bg-[#d01568] disabled:opacity-30 text-white font-bold text-xs transition-colors cursor-pointer shadow-md shadow-[#E11D74]/20"
-          >
-            <span>Next</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Slide Indicator Dots + Title */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-indigo-200/80 hidden sm:inline">
-            {slideTitles[currentSlide]}
-          </span>
-          <div className="flex items-center gap-1.5">
-            {[0, 1, 2].map((idx) => (
+      {/* 4. DETAILS POPOVER / MODAL */}
+      {activeDetailModal && (
+        <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#141133] border border-white/20 rounded-2xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-white/10">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#E11D74]">
+                  {activeDetailModal.category || 'General'}
+                </span>
+                <h3 className="text-lg font-bold text-white mt-0.5">
+                  {activeDetailModal.activity}
+                </h3>
+              </div>
               <button
-                key={idx}
-                onClick={() => setCurrentSlide(idx)}
-                className={`w-2.5 h-2.5 rounded-full transition-all cursor-pointer ${
-                  currentSlide === idx ? 'bg-[#E11D74] w-6' : 'bg-white/20 hover:bg-white/40'
-                }`}
-                title={`Go to slide ${idx + 1}`}
-              />
-            ))}
+                onClick={() => setActiveDetailModal(null)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[50vh] overflow-y-auto space-y-2 pr-1">
+              {(activeDetailModal.subItems || []).map((s, idx) => (
+                <div
+                  key={s.id || idx}
+                  className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs"
+                >
+                  <div className="font-semibold text-white">
+                    {idx + 1}. {s.title}
+                  </div>
+                  {s.note && (
+                    <div className="text-indigo-200/80 mt-1 pl-4 border-l-2 border-indigo-500/50">
+                      {s.note}
+                    </div>
+                  )}
+                  {s.createdAt && (
+                    <div className="text-[10px] text-slate-400 mt-1.5">{s.createdAt}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-white/10 flex justify-end">
+              <button
+                onClick={() => setActiveDetailModal(null)}
+                className="px-4 py-2 rounded-xl bg-[#E11D74] hover:bg-[#C91866] text-white text-xs font-bold cursor-pointer"
+              >
+                Close details
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="text-[11px] text-indigo-300/60 hidden md:flex items-center gap-3">
-          <span>Use <kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px]">←</kbd> <kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px]">→</kbd> to navigate</span>
-          <span>•</span>
-          <span>Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px]">Esc</kbd> to exit</span>
+      {/* 5. BOTTOM NAVIGATION CONTROLLER FOOTER */}
+      <footer className="px-8 py-4 bg-[#0D0B21] border-t border-[#211D44] flex items-center justify-between gap-4 shrink-0">
+        {/* Left: Previous Slide */}
+        <button
+          onClick={() => setCurrentSlide((prev) => Math.max(prev - 1, 0))}
+          disabled={currentSlide === 0}
+          className="px-4 py-2 rounded-xl bg-[#171433] hover:bg-[#201C46] border border-[#2B2555] text-slate-300 hover:text-white text-xs font-bold transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span>
+            {currentSlide === 1 ? 'Overview' : currentSlide === 2 ? 'Deliverables' : 'Previous'}
+          </span>
+        </button>
+
+        {/* Center: Slide indicator + Keyboard shortcut */}
+        <div className="flex items-center gap-4">
+          <span className="text-xs font-semibold text-slate-400">
+            <strong className="text-white font-bold">{currentSlide + 1}</strong> / 3 ·{' '}
+            {currentSlide === 0
+              ? 'Executive overview'
+              : currentSlide === 1
+              ? 'Work streams & deliverables'
+              : 'Action plan'}
+          </span>
+          <span className="text-[11px] text-slate-500 font-mono hidden md:inline">
+            ← → navigate · Esc exit
+          </span>
         </div>
+
+        {/* Right: Next Slide or End review */}
+        {currentSlide < 2 ? (
+          <button
+            onClick={() => setCurrentSlide((prev) => Math.min(prev + 1, 2))}
+            className="bg-[#E11D74] hover:bg-[#C91866] text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-lg shadow-[#E11D74]/25 cursor-pointer flex items-center gap-1.5 transition-all"
+          >
+            <span>
+              {currentSlide === 0 ? 'Next: Deliverables' : 'Next: Action plan'}
+            </span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={onClose}
+            className="bg-[#241328] hover:bg-[#341838] border border-pink-500/40 text-pink-200 hover:text-white px-5 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all"
+          >
+            End review
+          </button>
+        )}
       </footer>
     </div>
   );
