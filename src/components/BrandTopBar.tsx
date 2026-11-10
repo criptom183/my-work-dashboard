@@ -1,11 +1,12 @@
 import React from 'react';
-import { Search, Download, Plus, Lock, Unlock, Share2, Eye, EyeOff, CheckSquare } from 'lucide-react';
+import { Search, Download, Plus, Lock, Unlock, Share2, Eye, EyeOff, CheckSquare, Tv } from 'lucide-react';
 
 interface BrandTopBarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   onExportCsv: () => void;
   onOpenTaskManager: () => void;
+  onOpenPresentationMode?: () => void;
   isViewOnly?: boolean;
   onUnlockEditor?: () => void;
   onShareViewLink?: () => void;
@@ -18,6 +19,7 @@ export const BrandTopBar: React.FC<BrandTopBarProps> = ({
   onSearchChange,
   onExportCsv,
   onOpenTaskManager,
+  onOpenPresentationMode,
   isViewOnly = false,
   onUnlockEditor,
   onShareViewLink,
@@ -99,6 +101,18 @@ export const BrandTopBar: React.FC<BrandTopBarProps> = ({
             ⌘K
           </kbd>
         </div>
+
+        {/* Present / Meeting Mode button */}
+        {onOpenPresentationMode && (
+          <button
+            onClick={onOpenPresentationMode}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1D1B48] hover:bg-[#2A2766] text-white font-bold text-xs transition-all shadow-xs cursor-pointer active:scale-98"
+            title="Open distraction-free presentation mode for client reviews (P)"
+          >
+            <Tv className="w-3.5 h-3.5 text-pink-400" />
+            <span>Present</span>
+          </button>
+        )}
 
         {/* Export CSV button */}
         <button

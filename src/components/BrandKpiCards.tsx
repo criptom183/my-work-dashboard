@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlignLeft, Star, BarChart2 } from 'lucide-react';
+import { AlignLeft, Star } from 'lucide-react';
 import { DashboardData, WorkItem } from '../types';
 import { computeMoMStats } from '../utils/monthHelper';
 
@@ -37,10 +37,6 @@ export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
       ? ((topItem.count / totalItemsDelivered) * 100).toFixed(1)
       : '0';
 
-  // Average volume per stream
-  const avgPerStream =
-    totalWorkStreams > 0 ? (totalItemsDelivered / totalWorkStreams).toFixed(1) : '0.0';
-
   const hasMoM =
     momStats.prevMonth !== null &&
     momStats.deltaCount !== null &&
@@ -55,7 +51,7 @@ export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
       : '0.0%';
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
       {/* CARD 1: Dark Navy Featured Delivered Card with Sparkline */}
       <div
         onClick={onScrollToWorks}
@@ -211,29 +207,6 @@ export const BrandKpiCards: React.FC<BrandKpiCardsProps> = ({
 
         <p className="text-xs text-slate-400 font-medium">
           {topPercentage}% of monthly volume
-        </p>
-      </div>
-
-      {/* CARD 4: Avg. volume / stream */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-2xs flex flex-col justify-between">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-500">Avg. volume / stream</span>
-          <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-            <BarChart2 className="w-4 h-4" />
-          </div>
-        </div>
-
-        <div className="mt-4 mb-2">
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
-              {avgPerStream}
-            </span>
-            <span className="text-sm font-medium text-slate-500">items / stream</span>
-          </div>
-        </div>
-
-        <p className="text-xs text-slate-400 font-medium">
-          Delivery intensity in {selectedMonth === 'all' ? 'All Months' : selectedMonth}
         </p>
       </div>
     </div>

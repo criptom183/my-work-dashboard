@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Link2,
   FileSpreadsheet,
+  Tv,
 } from 'lucide-react';
 import { DashboardData } from '../types';
 import vzoneLogo from '../assets/vzone-logo.png';
@@ -28,6 +29,7 @@ interface SidebarProps {
   totalDeliverablesCount: number;
   activeTasksCount: number;
   isViewOnly?: boolean;
+  onOpenPresentationMode?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -44,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   totalDeliverablesCount,
   activeTasksCount,
   isViewOnly = false,
+  onOpenPresentationMode,
 }) => {
   return (
     <aside className="w-64 bg-[#1D1B48] text-white flex flex-col justify-between shrink-0 min-h-screen border-r border-[#27245A] select-none">
@@ -178,6 +181,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>Reports</span>
               </div>
             </button>
+
+            {/* Meeting / Presentation Mode */}
+            {onOpenPresentationMode && (
+              <button
+                onClick={onOpenPresentationMode}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs text-pink-300 hover:text-white bg-pink-500/10 hover:bg-[#E11D74] border border-pink-500/20 transition-all cursor-pointer group shadow-2xs mt-1"
+                title="Open distraction-free presentation mode for meetings"
+              >
+                <div className="flex items-center gap-3">
+                  <Tv className="w-4 h-4 shrink-0 text-[#E11D74] group-hover:text-white transition-colors" />
+                  <span>Meeting mode</span>
+                </div>
+                <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-white/10 text-white">
+                  Live
+                </span>
+              </button>
+            )}
           </nav>
         </div>
 

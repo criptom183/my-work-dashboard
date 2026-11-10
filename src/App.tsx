@@ -15,6 +15,7 @@ import { BrandOutputMix } from './components/BrandOutputMix';
 import { BrandTasksWidget } from './components/BrandTasksWidget';
 import { UploadSheetModal } from './components/UploadSheetModal';
 import { TaskManagerPage } from './components/TaskManagerPage';
+import { PresentationMode } from './components/PresentationMode';
 import { exportToCsv, downloadWorkbookWithSubItemsTab } from './utils/sheetParser';
 import { getWorksForSelectedMonth, isSameMonth } from './utils/monthHelper';
 import {
@@ -74,6 +75,7 @@ export default function App() {
   const [syncSettings, setSyncSettings] = useState<SyncSettings>(loadSyncSettingsFromStorage());
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [isPresentationOpen, setIsPresentationOpen] = useState(false);
 
   // Routing: 'dashboard' or 'tasks'
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'tasks'>(() => {
@@ -210,6 +212,27 @@ export default function App() {
       return next;
     });
   };
+
+  // Keyboard shortcut: Press 'P' to toggle Meeting / Presentation Mode
+  useEffect(() => {
+    const handleGlobalPresentationKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const target = e.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
+        setIsPresentationOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalPresentationKey);
+    return () => window.removeEventListener('keydown', handleGlobalPresentationKey);
+  }, []);
 
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -1293,6 +1316,7 @@ export default function App() {
           totalDeliverablesCount={totalDeliverablesCount}
           activeTasksCount={activeTasks.length}
           isViewOnly={isViewOnly}
+          onOpenPresentationMode={() => setIsPresentationOpen(true)}
         />
 
         <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto">
@@ -1423,6 +1447,7 @@ export default function App() {
         totalDeliverablesCount={totalDeliverablesCount}
         activeTasksCount={activeTasks.length}
         isViewOnly={isViewOnly}
+        onOpenPresentationMode={() => setIsPresentationOpen(true)}
       />
 
       {/* MAIN CONTENT AREA */}
@@ -1456,6 +1481,7 @@ export default function App() {
             onSearchChange={setSearchQuery}
             onExportCsv={handleExportCsv}
             onOpenTaskManager={navigateToTasks}
+            onOpenPresentationMode={() => setIsPresentationOpen(true)}
             isViewOnly={isViewOnly}
             onUnlockEditor={() => setIsUnlockModalOpen(true)}
             onShareViewLink={handleShareViewLink}
@@ -1698,6 +1724,17 @@ export default function App() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Meeting / Presentation Mode (Distraction-Free Cinematic Deck) */}
+      {isPresentationOpen && (
+        <PresentationMode
+          data={data}
+          tasks={tasks}
+          selectedMonth={selectedMonth}
+          onSelectMonth={setSelectedMonth}
+          onClose={() => setIsPresentationOpen(false)}
+        />
       )}
     </div>
   );
