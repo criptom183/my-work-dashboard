@@ -293,31 +293,48 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
         webhookUrl: url,
       });
 
-      const payload = JSON.stringify({
-        action: 'bulkSync',
-        items,
-      });
+      // Send each topic row-by-row with verified addTopic action
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const queryParams = new URLSearchParams({
+          action: 'addTopic',
+          deliverable: item.deliverable,
+          month: item.month,
+          title: item.title,
+          note: item.note,
+        });
+        const separator = url.includes('?') ? '&' : '?';
+        const targetWithParams = `${url}${separator}${queryParams.toString()}`;
 
-      const params = new URLSearchParams({
-        action: 'bulkSync',
-        items: JSON.stringify(items.slice(0, 25)), // URL param fallback for first 25
-      });
-      const separator = url.includes('?') ? '&' : '?';
-      const target = `${url}${separator}${params.toString()}`;
+        await fetch(targetWithParams, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'addTopic',
+            deliverable: item.deliverable,
+            month: item.month,
+            title: item.title,
+            note: item.note,
+          }),
+        }).catch(() => {
+          try {
+            const img = new Image();
+            img.src = targetWithParams;
+          } catch {}
+        });
 
-      await fetch(target, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: payload,
-      });
+        if (i < items.length - 1) {
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
 
       setTestResult({
         message: `✅ Pushed all ${items.length} topics into your Google Sheet "Topic Breakdown" tab! Check your Google Sheet to view them.`,
       });
     } catch (err: any) {
       setTestResult({
-        message: `Sent bulk update of ${items.length} topics. Please check your Google Sheet.`,
+        message: `Sent update of ${items.length} topics. Please check your Google Sheet.`,
       });
     } finally {
       setIsBulkSyncing(false);

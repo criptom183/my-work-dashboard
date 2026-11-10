@@ -17,6 +17,7 @@ import {
   ListTree,
   FileSpreadsheet,
   CornerDownRight,
+  UploadCloud,
 } from 'lucide-react';
 import { WorkItem, DeliverableSubItem } from '../types';
 import { isSameMonth } from '../utils/monthHelper';
@@ -36,6 +37,8 @@ interface BrandWorksCompletedProps {
   onDeleteSubItem?: (workItemId: string, subItemId: string) => void;
   onExportSubItemsSheet?: () => void;
   onOpenSyncModal?: () => void;
+  onSyncAllTopics?: () => void;
+  isSyncingAllTopics?: boolean;
   isViewOnly?: boolean;
 }
 
@@ -99,6 +102,8 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   onDeleteSubItem,
   onExportSubItemsSheet,
   onOpenSyncModal,
+  onSyncAllTopics,
+  isSyncingAllTopics = false,
   isViewOnly = false,
 }) => {
   const [viewMode, setViewMode] = useState<'chart' | 'trend' | 'table'>('chart');
@@ -263,6 +268,18 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onSyncAllTopics && subList.length > 0 && (
+              <button
+                type="button"
+                onClick={onSyncAllTopics}
+                disabled={isSyncingAllTopics}
+                className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 inline-flex items-center gap-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-colors"
+                title="Sync all dashboard topics into your Google Sheet"
+              >
+                <UploadCloud className="w-2.5 h-2.5 text-indigo-600" />
+                <span>Sync to Sheet</span>
+              </button>
+            )}
             {onExportSubItemsSheet && (
               <button
                 type="button"
@@ -479,6 +496,19 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               >
                 <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                 <span>Export Sheet Tab</span>
+              </button>
+            )}
+
+            {onSyncAllTopics && (
+              <button
+                type="button"
+                onClick={onSyncAllTopics}
+                disabled={isSyncingAllTopics}
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                title="Push all previously added topics to your Google Sheet now"
+              >
+                <UploadCloud className={`w-3 h-3 ${isSyncingAllTopics ? 'animate-spin' : ''}`} />
+                <span>{isSyncingAllTopics ? 'Syncing...' : 'Sync All Topics to Sheet'}</span>
               </button>
             )}
 

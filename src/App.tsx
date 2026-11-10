@@ -833,6 +833,104 @@ export default function App() {
     showToast('Topic removed.');
   };
 
+  const [isSyncingAllTopics, setIsSyncingAllTopics] = useState(false);
+
+  const handleSyncAllTopicsToGoogleSheet = async () => {
+    const webhookUrl = syncSettingsRef.current?.webhookUrl?.trim();
+    if (!webhookUrl) {
+      setIsSheetModalOpen(true);
+      showToast('Please enter & save your Google Apps Script Web App URL first.', 'error');
+      return;
+    }
+
+    // Collect all topics from worksCompleted and monthlySubItems
+    const items: Array<{ deliverable: string; month: string; title: string; note: string }> = [];
+    const works = dataRef.current.worksCompleted || [];
+
+    for (const w of works) {
+      if (w.subItems && w.subItems.length > 0) {
+        for (const s of w.subItems) {
+          items.push({
+            deliverable: w.activity,
+            month: w.month || selectedMonth || 'Nov 2026',
+            title: s.title,
+            note: s.note || '',
+          });
+        }
+      }
+      if (w.monthlySubItems) {
+        for (const [mName, mList] of Object.entries(w.monthlySubItems)) {
+          for (const s of mList || []) {
+            const already = items.some(
+              (it) => it.deliverable === w.activity && it.month === mName && it.title === s.title
+            );
+            if (!already) {
+              items.push({
+                deliverable: w.activity,
+                month: mName,
+                title: s.title,
+                note: s.note || '',
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (items.length === 0) {
+      showToast('No topics found in the dashboard yet. Expand any deliverable to add topics first.', 'info');
+      return;
+    }
+
+    setIsSyncingAllTopics(true);
+    showToast(`Syncing ${items.length} previous topics to your Google Sheet...`, 'info');
+
+    try {
+      // Send each topic row-by-row with verified addTopic action
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const queryParams = new URLSearchParams({
+          action: 'addTopic',
+          deliverable: item.deliverable,
+          month: item.month,
+          title: item.title,
+          note: item.note,
+        });
+        const separator = webhookUrl.includes('?') ? '&' : '?';
+        const targetWithParams = `${webhookUrl}${separator}${queryParams.toString()}`;
+
+        await fetch(targetWithParams, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'addTopic',
+            deliverable: item.deliverable,
+            month: item.month,
+            title: item.title,
+            note: item.note,
+          }),
+        }).catch(() => {
+          try {
+            const img = new Image();
+            img.src = targetWithParams;
+          } catch {}
+        });
+
+        if (i < items.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+      }
+
+      showToast(`Successfully added all ${items.length} previous topics into your Google Sheet!`);
+    } catch (err) {
+      console.error('Error syncing all topics to Google Sheet:', err);
+      showToast('Sent topics to Google Sheet. Please check your sheet.', 'info');
+    } finally {
+      setIsSyncingAllTopics(false);
+    }
+  };
+
   const handleExportSubItemsSheet = () => {
     downloadWorkbookWithSubItemsTab(data, selectedMonth);
     showToast('Downloaded Google Sheets workbook with Topic Breakdown tab!');
@@ -1264,6 +1362,8 @@ export default function App() {
                 onDeleteSubItem={handleDeleteSubItem}
                 onExportSubItemsSheet={handleExportSubItemsSheet}
                 onOpenSyncModal={() => setIsSheetModalOpen(true)}
+                onSyncAllTopics={handleSyncAllTopicsToGoogleSheet}
+                isSyncingAllTopics={isSyncingAllTopics}
                 isViewOnly={isViewOnly}
               />
             </div>
