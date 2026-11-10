@@ -4,7 +4,11 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { initialDashboardData } from './data/initialData';
+import {
+  initialDashboardData,
+  DEFAULT_GOOGLE_SHEET_URL,
+  DEPRECATED_SHEET_IDS,
+} from './data/initialData';
 import { DashboardData, WorkItem, SyncSettings, TaskItem, DeliverableSubItem } from './types';
 import { Sidebar } from './components/Sidebar';
 import { BrandTopBar } from './components/BrandTopBar';
@@ -249,8 +253,13 @@ export default function App() {
   // Core Google Sheet sync function
   const handleSyncGoogleSheet = useCallback(
     async (isSilent = false, overrideUrl?: string) => {
-      const currentUrl = overrideUrl || dataRef.current.sheetSourceUrl;
+      let currentUrl = overrideUrl || dataRef.current.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL;
       if (!currentUrl) return;
+
+      // Never sync from a deprecated old sheet URL; always upgrade to the new active sheet
+      if (DEPRECATED_SHEET_IDS.some((oldId) => currentUrl.includes(oldId))) {
+        currentUrl = DEFAULT_GOOGLE_SHEET_URL;
+      }
 
       if (!isSilent) {
         setIsSyncing(true);
@@ -260,23 +269,28 @@ export default function App() {
       try {
         const freshData = await fetchAndParseGoogleSheet(currentUrl);
 
-        // Preserve all user-added notes, details, and deliverables created in dashboard
+        // Preserve all user-added notes and details for deliverables present in the active sheet
         const existingByActivity = new Map<string, WorkItem>();
         for (const w of dataRef.current.worksCompleted || []) {
           existingByActivity.set(w.activity.trim().toLowerCase(), w);
         }
 
-        const freshActivities = new Set(
-          (freshData.worksCompleted || []).map((w) => w.activity.trim().toLowerCase())
-        );
-
-        // Keep any deliverables added in the dashboard that aren't in the raw sheet
-        const extraExistingWorks = (dataRef.current.worksCompleted || []).filter(
-          (w) => !freshActivities.has(w.activity.trim().toLowerCase())
-        );
+        // Also seed from initialDashboardData so default notes/details are never lost
+        for (const w of initialDashboardData.worksCompleted || []) {
+          const key = w.activity.trim().toLowerCase();
+          if (!existingByActivity.has(key)) {
+            existingByActivity.set(key, w);
+          }
+        }
 
         const updatedFreshWorks = (freshData.worksCompleted || []).map((w) => {
-          const match = existingByActivity.get(w.activity.trim().toLowerCase());
+          const key = w.activity.trim().toLowerCase();
+          let match = existingByActivity.get(key);
+          // Fallback match if 'News or Awareness Reels' was renamed to 'News or Awareness Reels (Incl. Malayalam & English)'
+          if (!match && key.startsWith('news or awareness reels')) {
+            match = existingByActivity.get('news or awareness reels');
+          }
+
           if (match) {
             // Merge monthly sub items without dropping anything
             const mergedMonthly: Record<string, DeliverableSubItem[]> = {
@@ -301,14 +315,16 @@ export default function App() {
               ...w,
               customNote: w.customNote || match.customNote,
               monthlyNotes: { ...(match.monthlyNotes || {}), ...(w.monthlyNotes || {}) },
-              subItems: (match.subItems && match.subItems.length > 0) ? match.subItems : w.subItems,
+              subItems:
+                match.subItems && match.subItems.length > 0 ? match.subItems : w.subItems,
               monthlySubItems: mergedMonthly,
             };
           }
           return w;
         });
 
-        const mergedWorks = restoreTopicsFromBackup([...updatedFreshWorks, ...extraExistingWorks]);
+        // Authoritative list comes strictly from the synced Google Sheet (no leftover rows from old sheets)
+        const mergedWorks = restoreTopicsFromBackup(updatedFreshWorks);
         saveTopicsBackup(mergedWorks);
 
         const mergedNotes = {
@@ -318,6 +334,7 @@ export default function App() {
 
         const mergedData: DashboardData = {
           ...freshData,
+          sheetSourceUrl: currentUrl,
           worksCompleted: mergedWorks,
           workListNotes: mergedNotes,
         };
@@ -399,7 +416,13 @@ export default function App() {
 
     // 2. Subscribe to shared sheet URL
     const unsubSheetUrl = subscribeToSharedSheetUrl((sharedUrl) => {
-      if (sharedUrl && sharedUrl !== dataRef.current.sheetSourceUrl) {
+      if (!sharedUrl) return;
+      // Ignore deprecated old sheet URL if an old client wrote it
+      if (DEPRECATED_SHEET_IDS.some((oldId) => sharedUrl.includes(oldId))) {
+        saveSharedSheetUrl(DEFAULT_GOOGLE_SHEET_URL).catch(console.warn);
+        return;
+      }
+      if (sharedUrl !== dataRef.current.sheetSourceUrl) {
         setData((prev) => ({ ...prev, sheetSourceUrl: sharedUrl }));
         if (syncSettingsRef.current.autoSync) {
           handleSyncGoogleSheet(true, sharedUrl);
@@ -410,6 +433,14 @@ export default function App() {
     // 3. Subscribe to active dashboard state (works completed, selected month, available months)
     const unsubDashboard = subscribeToSharedDashboardData((cloudDashboard) => {
       if (cloudDashboard && Array.isArray(cloudDashboard.worksCompleted) && cloudDashboard.worksCompleted.length > 0) {
+        // Ignore cloud snapshots that came from the deprecated old Google Sheet
+        if (
+          cloudDashboard.sheetSourceUrl &&
+          DEPRECATED_SHEET_IDS.some((oldId) => cloudDashboard.sheetSourceUrl?.includes(oldId))
+        ) {
+          return;
+        }
+
         setData((prev) => {
           // Merge workListNotes so any existing notes in local state are never wiped
           const mergedNotes = {
@@ -422,8 +453,18 @@ export default function App() {
             existingByActivity.set(w.activity.trim().toLowerCase(), w);
           }
 
+          // Filter out legacy duplicate 'News or Awareness Reels' if the new full name exists
+          const hasFullNewsActivity = cloudDashboard.worksCompleted.some((w) =>
+            w.activity.toLowerCase().includes('incl. malayalam')
+          );
+          const cleanCloudWorks = hasFullNewsActivity
+            ? cloudDashboard.worksCompleted.filter(
+                (w) => w.activity.trim().toLowerCase() !== 'news or awareness reels'
+              )
+            : cloudDashboard.worksCompleted;
+
           const mergedWorks = restoreTopicsFromBackup(
-            cloudDashboard.worksCompleted.map((w) => {
+            cleanCloudWorks.map((w) => {
               const match = existingByActivity.get(w.activity.trim().toLowerCase());
               // Non-destructive union of monthly sub items
               const mergedMonthly: Record<string, DeliverableSubItem[]> = {
@@ -466,6 +507,7 @@ export default function App() {
 
           const merged: DashboardData = {
             ...cloudDashboard,
+            sheetSourceUrl: cloudDashboard.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL,
             worksCompleted: mergedWorks,
             workListNotes: mergedNotes,
           };
@@ -555,48 +597,42 @@ export default function App() {
     }
   }, [data.selectedMonth, data.availableMonths]);
 
-  // Load from local storage on startup and broadcast to Firestore so any recipient/incognito tab gets the latest data
+  // Load from local storage on startup WITHOUT overwriting Cloud Firestore with potentially stale local cache
   useEffect(() => {
     const loaded = loadDashboardFromStorage();
-    if (loaded && loaded.data) {
-      const restoredWorks = restoreTopicsFromBackup(loaded.data.worksCompleted || []);
-      const completeData = {
+    if (loaded && loaded.data && loaded.data.worksCompleted && loaded.data.worksCompleted.length > 0) {
+      const restoredWorks = restoreTopicsFromBackup(loaded.data.worksCompleted);
+      const completeData: DashboardData = {
         ...loaded.data,
+        sheetSourceUrl: loaded.data.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL,
         worksCompleted: restoredWorks,
       };
-
-      // If loaded cache has no deliverables, use the initial template
-      if (!loaded.data.worksCompleted || loaded.data.worksCompleted.length === 0) {
-        const upgraded = {
-          ...initialDashboardData,
-          workListNotes: loaded.data.workListNotes || {},
-          worksCompleted: restoreTopicsFromBackup(initialDashboardData.worksCompleted),
-        };
-        setData(upgraded);
-        saveDashboardToStorage(upgraded);
-        saveTopicsBackup(upgraded.worksCompleted);
-        saveSharedDashboardData(upgraded).catch(console.warn);
-      } else {
-        setData(completeData);
-        saveDashboardToStorage(completeData);
-        saveTopicsBackup(restoredWorks);
-        // Sync the user's loaded data to Cloud Firestore immediately
-        saveSharedDashboardData(completeData).catch(console.warn);
-        if (loaded.data.sheetSourceUrl) {
-          saveSharedSheetUrl(loaded.data.sheetSourceUrl).catch(console.warn);
-        }
-      }
+      setData(completeData);
+      saveTopicsBackup(restoredWorks);
       setIsSavedInStorage(true);
       setSavedMeta(loaded.meta);
 
-      if (loaded.data.sheetSourceUrl && syncSettingsRef.current.autoSync) {
+      if (completeData.sheetSourceUrl && syncSettingsRef.current.autoSync) {
         const timer = setTimeout(() => {
-          handleSyncGoogleSheet(true);
-        }, 1000);
+          handleSyncGoogleSheet(true, completeData.sheetSourceUrl);
+        }, 800);
         return () => clearTimeout(timer);
       }
     } else {
-      setData(initialDashboardData);
+      const initialRestored: DashboardData = {
+        ...initialDashboardData,
+        sheetSourceUrl: DEFAULT_GOOGLE_SHEET_URL,
+        worksCompleted: restoreTopicsFromBackup(initialDashboardData.worksCompleted),
+      };
+      setData(initialRestored);
+      saveDashboardToStorage(initialRestored);
+      saveTopicsBackup(initialRestored.worksCompleted);
+      if (syncSettingsRef.current.autoSync) {
+        const timer = setTimeout(() => {
+          handleSyncGoogleSheet(true, DEFAULT_GOOGLE_SHEET_URL);
+        }, 800);
+        return () => clearTimeout(timer);
+      }
     }
   }, [handleSyncGoogleSheet]);
 
@@ -1177,21 +1213,24 @@ export default function App() {
   };
 
   const handleDataLoaded = (newData: DashboardData, saveToLocalMemory: boolean = true) => {
-    // Preserve any existing custom notes and workListNotes when importing updated counts
+    // Preserve any existing custom notes and details for activities present in the newly linked sheet
     const existingByActivity = new Map<string, WorkItem>();
     for (const w of dataRef.current.worksCompleted || []) {
       existingByActivity.set(w.activity.trim().toLowerCase(), w);
     }
-
-    const newActivities = new Set(
-      (newData.worksCompleted || []).map((w) => w.activity.trim().toLowerCase())
-    );
-    const extraExistingWorks = (dataRef.current.worksCompleted || []).filter(
-      (w) => !newActivities.has(w.activity.trim().toLowerCase())
-    );
+    for (const w of initialDashboardData.worksCompleted || []) {
+      const key = w.activity.trim().toLowerCase();
+      if (!existingByActivity.has(key)) {
+        existingByActivity.set(key, w);
+      }
+    }
 
     const updatedNewWorks = (newData.worksCompleted || []).map((w) => {
-      const match = existingByActivity.get(w.activity.trim().toLowerCase());
+      const key = w.activity.trim().toLowerCase();
+      let match = existingByActivity.get(key);
+      if (!match && key.startsWith('news or awareness reels')) {
+        match = existingByActivity.get('news or awareness reels');
+      }
       if (match) {
         const mergedMonthly: Record<string, DeliverableSubItem[]> = {
           ...(match.monthlySubItems || {}),
@@ -1221,7 +1260,7 @@ export default function App() {
       return w;
     });
 
-    const mergedWorks = restoreTopicsFromBackup([...updatedNewWorks, ...extraExistingWorks]);
+    const mergedWorks = restoreTopicsFromBackup(updatedNewWorks);
     saveTopicsBackup(mergedWorks);
 
     const mergedData: DashboardData = {

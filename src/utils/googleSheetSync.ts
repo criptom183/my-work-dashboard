@@ -68,6 +68,10 @@ export function getLiveCsvUrlFromSheetUrl(url: string): string {
 export async function fetchAndParseGoogleSheet(url: string): Promise<DashboardData> {
   const trimmed = url.trim();
   const { sheetId } = extractGoogleSheetId(trimmed);
+  const canonicalUrl =
+    sheetId && !trimmed.startsWith('http')
+      ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit?usp=sharing`
+      : trimmed;
 
   // Strategy 1: If standard Google Sheet ID found, fetch full XLSX workbook to get ALL month tabs
   if (sheetId && !trimmed.includes('/pub') && !trimmed.includes('output=csv')) {
@@ -87,7 +91,7 @@ export async function fetchAndParseGoogleSheet(url: string): Promise<DashboardDa
           const workbook = XLSX.read(bytes, { type: 'array', cellDates: true });
           if (workbook.SheetNames && workbook.SheetNames.length > 0) {
             const parsedData = parseExcelWorkbook(workbook, 'Live Google Sheet');
-            parsedData.sheetSourceUrl = url;
+            parsedData.sheetSourceUrl = canonicalUrl;
             return parsedData;
           }
         }

@@ -20,11 +20,17 @@ import {
 import { parseTasksFromRows } from './googleSheetsTasksSync';
 
 export function extractGoogleSheetId(url: string): { sheetId: string | null; gid: string | null } {
-  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  const sheetId = match ? match[1] : null;
-  const gidMatch = url.match(/[#&?]gid=([0-9]+)/);
-  const gid = gidMatch ? gidMatch[1] : null;
-  return { sheetId, gid };
+  const trimmed = (url || '').trim();
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match) {
+    const gidMatch = trimmed.match(/[#&?]gid=([0-9]+)/);
+    return { sheetId: match[1], gid: gidMatch ? gidMatch[1] : null };
+  }
+  // Also support pasting a raw Google Sheet ID directly (e.g., 1hhkDMmIfj80Qbj8PKwXMNyJESmdX9EvfzNQQxaNsO0g)
+  if (/^[a-zA-Z0-9-_]{25,60}$/.test(trimmed)) {
+    return { sheetId: trimmed, gid: null };
+  }
+  return { sheetId: null, gid: null };
 }
 
 export function buildGoogleSheetCsvUrl(sheetId: string, gid?: string | null): string {

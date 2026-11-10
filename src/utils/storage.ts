@@ -1,7 +1,14 @@
 import { DashboardData, WorkItem, DeliverableSubItem, SyncSettings } from '../types';
+import { DEPRECATED_SHEET_IDS, DEFAULT_GOOGLE_SHEET_URL } from '../data/initialData';
 
-const STORAGE_KEY = 'vzone_marketing_dashboard_data_v1';
-const STORAGE_META_KEY = 'vzone_marketing_dashboard_meta_v1';
+const OLD_STORAGE_KEYS = [
+  'vzone_marketing_dashboard_data_v1',
+  'vzone_marketing_dashboard_data_v2',
+  'vzone_marketing_dashboard_meta_v1',
+  'vzone_marketing_dashboard_meta_v2',
+];
+const STORAGE_KEY = 'vzone_marketing_dashboard_data_v3';
+const STORAGE_META_KEY = 'vzone_marketing_dashboard_meta_v3';
 const TOPICS_BACKUP_KEY = 'vzone_marketing_dashboard_topics_backup_v1';
 
 export interface StorageMeta {
@@ -15,6 +22,9 @@ export interface StorageMeta {
  */
 export function saveDashboardToStorage(data: DashboardData): boolean {
   try {
+    for (const k of OLD_STORAGE_KEYS) {
+      localStorage.removeItem(k);
+    }
     const serialized = JSON.stringify(data);
     localStorage.setItem(STORAGE_KEY, serialized);
 
@@ -39,10 +49,42 @@ export function saveDashboardToStorage(data: DashboardData): boolean {
  */
 export function loadDashboardFromStorage(): { data: DashboardData; meta: StorageMeta } | null {
   try {
+    // Purge legacy v1/v2 caches that held the old Google Sheet link or merged old+new works
+    for (const k of OLD_STORAGE_KEYS) {
+      localStorage.removeItem(k);
+    }
+
     const serialized = localStorage.getItem(STORAGE_KEY);
     if (!serialized) return null;
 
     const data: DashboardData = JSON.parse(serialized);
+
+    // If stored data points to a deprecated sheet ID, discard it so the new sheet is used cleanly
+    if (
+      data.sheetSourceUrl &&
+      DEPRECATED_SHEET_IDS.some((oldId) => data.sheetSourceUrl?.includes(oldId))
+    ) {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(STORAGE_META_KEY);
+      return null;
+    }
+
+    if (!data.sheetSourceUrl) {
+      data.sheetSourceUrl = DEFAULT_GOOGLE_SHEET_URL;
+    }
+
+    // Filter out any legacy duplicate row ('News or Awareness Reels' when the new row exists)
+    if (Array.isArray(data.worksCompleted)) {
+      const hasNewNewsRow = data.worksCompleted.some((w) =>
+        w.activity.toLowerCase().includes('incl. malayalam')
+      );
+      if (hasNewNewsRow) {
+        data.worksCompleted = data.worksCompleted.filter(
+          (w) => w.activity.trim().toLowerCase() !== 'news or awareness reels'
+        );
+      }
+    }
+
     const metaStr = localStorage.getItem(STORAGE_META_KEY);
     const meta: StorageMeta = metaStr
       ? JSON.parse(metaStr)
