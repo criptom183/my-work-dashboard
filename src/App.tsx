@@ -681,25 +681,49 @@ export default function App() {
               w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
           )?.activity || workItemId;
 
-        fetch(syncSettingsRef.current.webhookUrl, {
+        const webhookPayload = JSON.stringify({
+          action: 'addTopic',
+          deliverable: deliverableName,
+          month: targetMonth,
+          title: title.trim(),
+          note: note?.trim() || '',
+          createdAt: newSubItem.createdAt,
+        });
+
+        const queryParams = new URLSearchParams({
+          action: 'addTopic',
+          deliverable: deliverableName,
+          month: targetMonth,
+          title: title.trim(),
+          note: note?.trim() || '',
+        });
+
+        const targetUrl = syncSettingsRef.current.webhookUrl;
+        const separator = targetUrl.includes('?') ? '&' : '?';
+        const urlWithParams = `${targetUrl}${separator}${queryParams.toString()}`;
+
+        // Send via text/plain (CORS-safelisted, never blocked by browser)
+        fetch(urlWithParams, {
           method: 'POST',
           mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'addTopic',
-            deliverable: deliverableName,
-            month: targetMonth,
-            title: title.trim(),
-            note: note?.trim() || '',
-            createdAt: newSubItem.createdAt,
-          }),
-        }).catch((err) => console.warn('Google Sheet webhook autosave error:', err));
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: webhookPayload,
+        }).catch(() => {
+          // Fallback beacon
+          try {
+            const img = new Image();
+            img.src = urlWithParams;
+          } catch {}
+        });
+
+        showToast(`Topic "${title}" added & autosaved to Google Sheet!`);
+        return;
       } catch (e) {
         console.warn('Google Sheet webhook dispatch error:', e);
       }
     }
 
-    showToast(`Topic "${title}" added and autosaved!`);
+    showToast(`Topic "${title}" added & saved!`);
   };
 
   const handleUpdateSubItem = (
@@ -990,6 +1014,8 @@ export default function App() {
           currentSheetUrl={data.sheetSourceUrl || ''}
           syncSettings={syncSettings}
           onUpdateSyncSettings={handleUpdateSyncSettings}
+          worksCompleted={data.worksCompleted}
+          selectedMonth={selectedMonth}
         />
 
         {/* Passcode Unlock Editor Modal */}
@@ -1237,6 +1263,7 @@ export default function App() {
                 onUpdateSubItem={handleUpdateSubItem}
                 onDeleteSubItem={handleDeleteSubItem}
                 onExportSubItemsSheet={handleExportSubItemsSheet}
+                onOpenSyncModal={() => setIsSheetModalOpen(true)}
                 isViewOnly={isViewOnly}
               />
             </div>
@@ -1285,6 +1312,8 @@ export default function App() {
         currentSheetUrl={data.sheetSourceUrl || ''}
         syncSettings={syncSettings}
         onUpdateSyncSettings={handleUpdateSyncSettings}
+        worksCompleted={data.worksCompleted}
+        selectedMonth={selectedMonth}
       />
 
       {/* Passcode Unlock Editor Modal */}

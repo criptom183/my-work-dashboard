@@ -35,6 +35,7 @@ interface BrandWorksCompletedProps {
   onUpdateSubItem?: (workItemId: string, subItemId: string, updates: { title?: string; note?: string }) => void;
   onDeleteSubItem?: (workItemId: string, subItemId: string) => void;
   onExportSubItemsSheet?: () => void;
+  onOpenSyncModal?: () => void;
   isViewOnly?: boolean;
 }
 
@@ -97,6 +98,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   onUpdateSubItem,
   onDeleteSubItem,
   onExportSubItemsSheet,
+  onOpenSyncModal,
   isViewOnly = false,
 }) => {
   const [viewMode, setViewMode] = useState<'chart' | 'trend' | 'table'>('chart');
@@ -477,6 +479,18 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               >
                 <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                 <span>Export Sheet Tab</span>
+              </button>
+            )}
+
+            {onOpenSyncModal && (
+              <button
+                type="button"
+                onClick={onOpenSyncModal}
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
+                title="Configure Google Sheet Autosave & Apps Script Web App"
+              >
+                <Zap className="w-3 h-3 text-indigo-600" />
+                <span>Sheet Autosave</span>
               </button>
             )}
           </div>
