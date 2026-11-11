@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { DashboardData, WorkItem, TaskItem } from '../types';
 import { computeMoMStats, getWorksForSelectedMonth } from '../utils/monthHelper';
+import { deduplicateSubItems } from '../utils/storage';
 import vzoneLogo from '../assets/vzone-logo.png';
 
 interface PresentationModeProps {
@@ -1054,7 +1055,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
             </div>
 
             <div className="mt-4 max-h-[50vh] overflow-y-auto space-y-2 pr-1">
-              {(activeDetailModal.subItems || []).map((s, idx) => (
+              {deduplicateSubItems(activeDetailModal.subItems || []).map((s, idx) => (
                 <div
                   key={s.id || idx}
                   className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs"

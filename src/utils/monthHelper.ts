@@ -1,4 +1,5 @@
 import { WorkItem, DeliverableSubItem } from '../types';
+import { deduplicateSubItems } from './storage';
 
 export const MONTH_FULL_NAMES = [
   'january',
@@ -391,7 +392,7 @@ export function getWorksForSelectedMonth(
           month: 'All Months',
           customNote: resolvedAllNote,
           monthlyBreakdown: breakdown,
-          subItems: allSub,
+          subItems: deduplicateSubItems(allSub),
         });
       } else {
         const existing = map.get(key)!;
@@ -436,15 +437,7 @@ export function getWorksForSelectedMonth(
           existing.monthlySubItems = { ...(existing.monthlySubItems || {}), ...w.monthlySubItems };
         }
         if (w.subItems) {
-          const existingSub = existing.subItems || [];
-          const seenIds = new Set(existingSub.map((s) => s.id));
-          for (const s of w.subItems) {
-            if (!seenIds.has(s.id)) {
-              existingSub.push(s);
-              seenIds.add(s.id);
-            }
-          }
-          existing.subItems = existingSub;
+          existing.subItems = deduplicateSubItems([...(existing.subItems || []), ...w.subItems]);
         }
 
         existing.monthlyBreakdown = breakdown;
@@ -524,7 +517,7 @@ export function getWorksForSelectedMonth(
         count: monthCount,
         month: selectedMonth,
         customNote: resolvedCustomNote,
-        subItems: resolvedSubItems,
+        subItems: deduplicateSubItems(resolvedSubItems),
       });
     }
 
@@ -534,11 +527,18 @@ export function getWorksForSelectedMonth(
   // If works have explicit `month` properties
   const directMatches = works.filter((w) => w.month && isSameMonth(w.month, selectedMonth));
   if (directMatches.length > 0) {
-    return directMatches;
+    return directMatches.map((w) => ({
+      ...w,
+      subItems: deduplicateSubItems(w.subItems),
+    }));
   }
 
   // Fallback: return existing works with this month stamped
-  return works.map((w) => ({ ...w, month: selectedMonth }));
+  return works.map((w) => ({
+    ...w,
+    month: selectedMonth,
+    subItems: deduplicateSubItems(w.subItems),
+  }));
 }
 
 

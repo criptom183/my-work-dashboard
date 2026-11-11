@@ -28,18 +28,40 @@ export function isDeprecatedSubItem(item?: DeliverableSubItem | null): boolean {
   return false;
 }
 
-export function filterValidSubItems(list?: DeliverableSubItem[]): DeliverableSubItem[] {
+export function deduplicateSubItems(list?: DeliverableSubItem[]): DeliverableSubItem[] {
   if (!Array.isArray(list)) return [];
-  const seen = new Set<string>();
-  const clean: DeliverableSubItem[] = [];
+  const map = new Map<string, DeliverableSubItem>();
+
   for (const item of list) {
+    if (!item || !item.title) continue;
     if (isDeprecatedSubItem(item)) continue;
-    if (!seen.has(item.id)) {
-      seen.add(item.id);
-      clean.push(item);
+    const normTitle = item.title.trim().toLowerCase();
+    if (!normTitle) continue;
+
+    if (!map.has(normTitle)) {
+      map.set(normTitle, {
+        id: item.id || `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        title: item.title.trim(),
+        note: item.note && item.note.trim() ? item.note.trim() : undefined,
+        createdAt: item.createdAt || new Date().toISOString(),
+      });
+    } else {
+      // Merge into existing item: if existing item has no note, but this duplicate has a note, preserve it
+      const existing = map.get(normTitle)!;
+      if ((!existing.note || !existing.note.trim()) && item.note && item.note.trim()) {
+        existing.note = item.note.trim();
+      }
+      if (!existing.createdAt && item.createdAt) {
+        existing.createdAt = item.createdAt;
+      }
     }
   }
-  return clean;
+
+  return Array.from(map.values());
+}
+
+export function filterValidSubItems(list?: DeliverableSubItem[]): DeliverableSubItem[] {
+  return deduplicateSubItems(list);
 }
 
 export function sanitizeWorkItemSubItems(w: WorkItem): WorkItem {
@@ -319,34 +341,23 @@ export function saveTopicsBackup(works: WorkItem[]): void {
         ...(w.monthlySubItems || {}),
       };
 
-      // Union by sub-item ID so no real item is ever lost
-      if (existing.monthlySubItems && w.monthlySubItems) {
-        for (const [m, list] of Object.entries(w.monthlySubItems)) {
-          const oldList = filterValidSubItems(existing.monthlySubItems[m]);
-          const newList = filterValidSubItems(list);
-          const seen = new Set(newList.map((i) => i.id));
-          const combined = [...newList];
-          for (const item of oldList) {
-            if (!seen.has(item.id)) {
-              combined.push(item);
-              seen.add(item.id);
-            }
-          }
-          mergedMonthly[m] = combined;
+      // Union by normalized title so duplicate IDs or names never accumulate
+      if (existing.monthlySubItems || w.monthlySubItems) {
+        const allMonths = new Set([
+          ...Object.keys(existing.monthlySubItems || {}),
+          ...Object.keys(w.monthlySubItems || {}),
+        ]);
+        for (const m of allMonths) {
+          const oldList = existing.monthlySubItems?.[m] || [];
+          const newList = w.monthlySubItems?.[m] || [];
+          mergedMonthly[m] = deduplicateSubItems([...newList, ...oldList]);
         }
       }
 
-      // Merge root subItems
-      const oldSub = filterValidSubItems(existing.subItems);
-      const newSub = filterValidSubItems(w.subItems);
-      const seenRoot = new Set(newSub.map((i) => i.id));
-      const combinedSub = [...newSub];
-      for (const item of oldSub) {
-        if (!seenRoot.has(item.id)) {
-          combinedSub.push(item);
-          seenRoot.add(item.id);
-        }
-      }
+      // Merge root subItems strictly by title
+      const oldSub = existing.subItems || [];
+      const newSub = w.subItems || [];
+      const combinedSub = deduplicateSubItems([...newSub, ...oldSub]);
 
       // Merge monthlyNotes (preserve non-empty notes)
       const mergedMonthlyNotes: Record<string, string> = {
@@ -487,29 +498,26 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
         ...(w.monthlySubItems || {}),
       };
 
-      if (saved.monthlySubItems) {
-        for (const [m, list] of Object.entries(saved.monthlySubItems)) {
-          const current = filterValidSubItems(mergedMonthly[m]);
-          const seen = new Set(current.map((i) => i.id));
-          const combined = [...current];
-          for (const it of filterValidSubItems(list)) {
-            if (!seen.has(it.id)) {
-              seen.add(it.id);
-              combined.push(it);
-            }
-          }
-          mergedMonthly[m] = combined;
+      if (saved.monthlySubItems || w.monthlySubItems) {
+        const allMonths = new Set([
+          ...Object.keys(saved.monthlySubItems || {}),
+          ...Object.keys(w.monthlySubItems || {}),
+        ]);
+        for (const m of allMonths) {
+          const listA = w.monthlySubItems?.[m] || [];
+          const listB = saved.monthlySubItems?.[m] || [];
+          mergedMonthly[m] = deduplicateSubItems([...listA, ...listB]);
         }
       }
 
-      // Resolve active subItems for this deliverable's target month
+      // Resolve active subItems for this deliverable's target month with strict deduplication
       let activeSub: DeliverableSubItem[] = [];
       if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
-        activeSub = filterValidSubItems(mergedMonthly[w.month]);
+        activeSub = deduplicateSubItems(mergedMonthly[w.month]);
       } else if (w.subItems && w.subItems.length > 0) {
-        activeSub = filterValidSubItems(w.subItems);
+        activeSub = deduplicateSubItems(w.subItems);
       } else if (saved.subItems && saved.subItems.length > 0) {
-        activeSub = filterValidSubItems(saved.subItems);
+        activeSub = deduplicateSubItems(saved.subItems);
       }
 
       // Merge monthlyNotes without overwriting non-empty notes with empty strings

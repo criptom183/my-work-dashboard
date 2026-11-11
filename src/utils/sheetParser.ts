@@ -18,6 +18,7 @@ import {
   isSameMonth,
 } from './monthHelper';
 import { parseTasksFromRows } from './googleSheetsTasksSync';
+import { deduplicateSubItems } from './storage';
 
 export function extractGoogleSheetId(url: string): { sheetId: string | null; gid: string | null } {
   const trimmed = (url || '').trim();
@@ -478,25 +479,41 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
         });
 
         if (targetWork) {
+          const normTitle = rawTitle.trim();
           const subItem = {
-            id: `sub-sheet-${r}-${rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
-            title: rawTitle,
+            id: `sub-sheet-${normMonth.toLowerCase().replace(/[^a-z0-9]/g, '')}-${normTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+            title: normTitle,
             note: rawNote || undefined,
             createdAt: new Date().toISOString(),
           };
 
           const mSub = targetWork.monthlySubItems || {};
           const currentList = mSub[normMonth] ? [...mSub[normMonth]] : [];
-          if (!currentList.some((it) => it.title.trim().toLowerCase() === rawTitle.toLowerCase())) {
-            currentList.push(subItem);
-            mSub[normMonth] = currentList;
-            targetWork.monthlySubItems = mSub;
-
-            if (!targetWork.subItems) targetWork.subItems = [];
-            if (!targetWork.subItems.some((it) => it.title.trim().toLowerCase() === rawTitle.toLowerCase())) {
-              targetWork.subItems.push(subItem);
+          const existingIdx = currentList.findIndex(
+            (it) => it.title.trim().toLowerCase() === normTitle.toLowerCase()
+          );
+          if (existingIdx >= 0) {
+            if (rawNote && (!currentList[existingIdx].note || !currentList[existingIdx].note.trim())) {
+              currentList[existingIdx].note = rawNote;
             }
+          } else {
+            currentList.push(subItem);
           }
+          mSub[normMonth] = deduplicateSubItems(currentList);
+          targetWork.monthlySubItems = mSub;
+
+          if (!targetWork.subItems) targetWork.subItems = [];
+          const rootIdx = targetWork.subItems.findIndex(
+            (it) => it.title.trim().toLowerCase() === normTitle.toLowerCase()
+          );
+          if (rootIdx >= 0) {
+            if (rawNote && (!targetWork.subItems[rootIdx].note || !targetWork.subItems[rootIdx].note.trim())) {
+              targetWork.subItems[rootIdx].note = rawNote;
+            }
+          } else {
+            targetWork.subItems.push(subItem);
+          }
+          targetWork.subItems = deduplicateSubItems(targetWork.subItems);
         }
       }
     }

@@ -36,6 +36,7 @@ import {
   buildTopicSyncKey,
   getSyncedTopicKeys,
   markTopicsAsSynced,
+  deduplicateSubItems,
 } from './utils/storage';
 import {
   loadTasksFromStorage,
@@ -286,27 +287,28 @@ export default function App() {
           ? cloudDeliverableNotesRef.current.itemNotes['news or awareness reels']
           : undefined);
 
-      // Merge monthly sub items without dropping anything
-      const mergedMonthly: Record<string, DeliverableSubItem[]> = {
-        ...(initMatch?.monthlySubItems || {}),
-        ...(match?.monthlySubItems || {}),
-        ...(w.monthlySubItems || {}),
-      };
-
-      for (const source of [initMatch?.monthlySubItems, match?.monthlySubItems, w.monthlySubItems]) {
-        if (!source) continue;
-        for (const [m, list] of Object.entries(source)) {
-          const current = mergedMonthly[m] || [];
-          const seen = new Set(current.map((i) => i.id));
-          const combined = [...current];
-          for (const it of list || []) {
-            if (!seen.has(it.id)) {
-              seen.add(it.id);
-              combined.push(it);
-            }
-          }
-          mergedMonthly[m] = combined;
+      // Merge monthly sub items without dropping anything and deduplicate strictly by title
+      const allMonthlySources = [
+        initMatch?.monthlySubItems,
+        match?.monthlySubItems,
+        w.monthlySubItems,
+      ];
+      const allMonthKeys = new Set<string>();
+      for (const s of allMonthlySources) {
+        if (s) {
+          for (const k of Object.keys(s)) allMonthKeys.add(k);
         }
+      }
+
+      const mergedMonthly: Record<string, DeliverableSubItem[]> = {};
+      for (const m of allMonthKeys) {
+        const collected: DeliverableSubItem[] = [];
+        for (const source of allMonthlySources) {
+          if (source && source[m]) {
+            collected.push(...source[m]);
+          }
+        }
+        mergedMonthly[m] = deduplicateSubItems(collected);
       }
 
       // Merge monthlyNotes (preserve non-empty notes across initial, local, and cloud vault)
@@ -342,13 +344,13 @@ export default function App() {
 
       let activeSub: DeliverableSubItem[] = [];
       if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
-        activeSub = mergedMonthly[w.month];
+        activeSub = deduplicateSubItems(mergedMonthly[w.month]);
       } else if (match?.subItems && match.subItems.length > 0) {
-        activeSub = match.subItems;
+        activeSub = deduplicateSubItems(match.subItems);
       } else if (w.subItems && w.subItems.length > 0) {
-        activeSub = w.subItems;
+        activeSub = deduplicateSubItems(w.subItems);
       } else if (initMatch?.subItems && initMatch.subItems.length > 0) {
-        activeSub = initMatch.subItems;
+        activeSub = deduplicateSubItems(initMatch.subItems);
       }
 
       return {
@@ -594,14 +596,17 @@ export default function App() {
             for (const item of relevant) {
               const mName = item.month || 'Nov 2026';
               const currentList = monthlySub[mName] ? [...monthlySub[mName]] : [];
-              const idx = currentList.findIndex((it) => it.id === item.id);
+              const normItemTitle = item.title.trim().toLowerCase();
+              const idx = currentList.findIndex(
+                (it) => it.id === item.id || it.title.trim().toLowerCase() === normItemTitle
+              );
               if (idx >= 0) {
                 if (currentList[idx].title !== item.title || currentList[idx].note !== item.note) {
                   currentList[idx] = {
-                    id: item.id,
+                    id: currentList[idx].id || item.id,
                     title: item.title,
-                    note: item.note,
-                    createdAt: item.createdAt,
+                    note: item.note || currentList[idx].note,
+                    createdAt: currentList[idx].createdAt || item.createdAt,
                   };
                   hasChanges = true;
                 }
@@ -614,7 +619,7 @@ export default function App() {
                 });
                 hasChanges = true;
               }
-              monthlySub[mName] = currentList;
+              monthlySub[mName] = deduplicateSubItems(currentList);
             }
 
             return {
@@ -1070,13 +1075,24 @@ export default function App() {
             : w.subItems
             ? [...w.subItems]
             : [];
-          currentList.push(newSubItem);
-          monthlySub[targetMonth] = currentList;
+          const normNewTitle = newSubItem.title.toLowerCase();
+          const existingIdx = currentList.findIndex(
+            (it) => it.title.trim().toLowerCase() === normNewTitle
+          );
+          if (existingIdx >= 0) {
+            if (newSubItem.note) {
+              currentList[existingIdx].note = newSubItem.note;
+            }
+          } else {
+            currentList.push(newSubItem);
+          }
+          const deduplicatedList = deduplicateSubItems(currentList);
+          monthlySub[targetMonth] = deduplicatedList;
 
           const rootSub =
             (w.month && isSameMonth(w.month, targetMonth)) || targetMonth === 'all'
-              ? currentList
-              : w.subItems || [];
+              ? deduplicatedList
+              : deduplicateSubItems(w.subItems || []);
 
           return {
             ...w,
@@ -1284,13 +1300,18 @@ export default function App() {
             : w.subItems
             ? [...w.subItems]
             : [];
-          const updatedList = currentList.filter((item) => item.id !== subItemId);
-          monthlySub[targetMonth] = updatedList;
+          const targetItem = currentList.find((it) => it.id === subItemId);
+          const targetTitle = targetItem?.title?.trim().toLowerCase();
+          const updatedList = currentList.filter(
+            (item) => item.id !== subItemId && (!targetTitle || item.title.trim().toLowerCase() !== targetTitle)
+          );
+          const deduplicatedList = deduplicateSubItems(updatedList);
+          monthlySub[targetMonth] = deduplicatedList;
 
           const rootSub =
             (w.month && isSameMonth(w.month, targetMonth)) || targetMonth === 'all'
-              ? updatedList
-              : w.subItems || [];
+              ? deduplicatedList
+              : deduplicateSubItems(w.subItems || []);
 
           return {
             ...w,

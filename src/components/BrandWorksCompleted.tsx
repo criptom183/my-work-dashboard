@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { WorkItem, DeliverableSubItem } from '../types';
 import { isSameMonth } from '../utils/monthHelper';
+import { deduplicateSubItems } from '../utils/storage';
 
 interface BrandWorksCompletedProps {
   works: WorkItem[];
@@ -251,7 +252,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   };
 
   const renderTopicsPanel = (item: WorkItem) => {
-    const subList = item.subItems || [];
+    const subList = deduplicateSubItems(item.subItems || []);
     const isAdding = !isViewOnly && onAddSubItem;
 
     return (
