@@ -311,36 +311,53 @@ export default function App() {
         mergedMonthly[m] = deduplicateSubItems(collected);
       }
 
-      // Merge monthlyNotes (preserve non-empty notes across initial, local, and cloud vault)
+      // Merge monthlyNotes (vaultNote takes top precedence, then current item, then local backup; never hardcoded initMatch)
       const mergedMonthlyNotes: Record<string, string> = {};
       for (const noteSource of [
-        initMatch?.monthlyNotes,
         match?.monthlyNotes,
-        vaultNote?.monthlyNotes,
         w.monthlyNotes,
+        vaultNote?.monthlyNotes,
       ]) {
         if (noteSource && typeof noteSource === 'object') {
           for (const [m, txt] of Object.entries(noteSource)) {
-            if (typeof txt === 'string' && txt.trim()) {
+            if (typeof txt === 'string' && txt.trim() && txt.trim() !== 'undefined') {
               mergedMonthlyNotes[m] = txt.trim();
             }
           }
         }
       }
 
+      const cleanVaultCustomNote =
+        vaultNote?.customNote && vaultNote.customNote.trim() !== 'undefined'
+          ? vaultNote.customNote.trim()
+          : undefined;
+      const cleanWCustomNote =
+        w.customNote && w.customNote.trim() !== 'undefined'
+          ? w.customNote.trim()
+          : undefined;
+      const cleanMatchCustomNote =
+        match?.customNote && match.customNote.trim() !== 'undefined'
+          ? match.customNote.trim()
+          : undefined;
+
       const resolvedCustomNote =
-        (w.customNote && w.customNote.trim()) ||
-        (vaultNote?.customNote && vaultNote.customNote.trim()) ||
-        (match?.customNote && match.customNote.trim()) ||
-        (initMatch?.customNote && initMatch.customNote.trim()) ||
-        undefined;
+        cleanVaultCustomNote || cleanWCustomNote || cleanMatchCustomNote || undefined;
+
+      const cleanVaultNotes =
+        vaultNote?.notes && vaultNote.notes.trim() !== 'undefined'
+          ? vaultNote.notes.trim()
+          : undefined;
+      const cleanWNotes =
+        w.notes && w.notes.trim() !== 'undefined'
+          ? w.notes.trim()
+          : undefined;
+      const cleanMatchNotes =
+        match?.notes && match.notes.trim() !== 'undefined'
+          ? match.notes.trim()
+          : undefined;
 
       const resolvedNotes =
-        (w.notes && w.notes.trim()) ||
-        (vaultNote?.notes && vaultNote.notes.trim()) ||
-        (match?.notes && match.notes.trim()) ||
-        (initMatch?.notes && initMatch.notes.trim()) ||
-        undefined;
+        cleanVaultNotes || cleanWNotes || cleanMatchNotes || undefined;
 
       let activeSub: DeliverableSubItem[] = [];
       if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
@@ -424,8 +441,8 @@ export default function App() {
 
         setData(mergedData);
 
-        // Broadcast to Cloud Firestore if triggered manually or by an editor
-        if (!isSilent || !isViewOnlyRef.current) {
+        // Broadcast to Cloud Firestore ONLY if triggered manually by an editor (never on silent background load)
+        if (!isSilent && !isViewOnlyRef.current) {
           saveSharedDashboardData(mergedData).catch(console.warn);
           if (currentUrl) {
             saveSharedSheetUrl(currentUrl).catch(console.warn);
@@ -661,25 +678,39 @@ export default function App() {
             };
             if (vaultEntry.monthlyNotes && typeof vaultEntry.monthlyNotes === 'object') {
               for (const [m, txt] of Object.entries(vaultEntry.monthlyNotes)) {
-                if (typeof txt === 'string' && txt.trim() && mergedMonthlyNotes[m] !== txt.trim()) {
-                  mergedMonthlyNotes[m] = txt.trim();
-                  hasChanges = true;
+                if (typeof txt === 'string' && txt.trim() && txt.trim() !== 'undefined') {
+                  if (mergedMonthlyNotes[m] !== txt.trim()) {
+                    mergedMonthlyNotes[m] = txt.trim();
+                    hasChanges = true;
+                  }
                 }
               }
             }
 
+            const cleanVaultCustomNote =
+              vaultEntry.customNote && vaultEntry.customNote.trim() !== 'undefined'
+                ? vaultEntry.customNote.trim()
+                : undefined;
+            const cleanWCustomNote =
+              w.customNote && w.customNote.trim() !== 'undefined'
+                ? w.customNote.trim()
+                : undefined;
             const nextCustomNote =
-              (w.customNote && w.customNote.trim()) ||
-              (vaultEntry.customNote && vaultEntry.customNote.trim()) ||
-              undefined;
+              cleanVaultCustomNote !== undefined ? cleanVaultCustomNote : cleanWCustomNote;
             if (nextCustomNote !== w.customNote) {
               hasChanges = true;
             }
 
+            const cleanVaultNotes =
+              vaultEntry.notes && vaultEntry.notes.trim() !== 'undefined'
+                ? vaultEntry.notes.trim()
+                : undefined;
+            const cleanWNotes =
+              w.notes && w.notes.trim() !== 'undefined'
+                ? w.notes.trim()
+                : undefined;
             const nextNotes =
-              (w.notes && w.notes.trim()) ||
-              (vaultEntry.notes && vaultEntry.notes.trim()) ||
-              undefined;
+              cleanVaultNotes !== undefined ? cleanVaultNotes : cleanWNotes;
             if (nextNotes !== w.notes) {
               hasChanges = true;
             }
@@ -877,8 +908,14 @@ export default function App() {
 
     setData((prev) => {
       let updatedTargetWork: WorkItem | null = null;
+      const cleanId = id.replace(/^all-/, '');
       const updatedWorks = prev.worksCompleted.map((w) => {
-        if (w.id === id || w.id.replace(/^all-/, '') === id.replace(/^all-/, '')) {
+        const matchesId = w.id === id || w.id.replace(/^all-/, '') === cleanId;
+        const matchesActivity =
+          updates.activity &&
+          w.activity.trim().toLowerCase() === updates.activity.trim().toLowerCase();
+
+        if (matchesId || matchesActivity) {
           const updatedBreakdown = w.monthlyBreakdown
             ? {
                 ...w.monthlyBreakdown,
@@ -891,8 +928,9 @@ export default function App() {
           // Scope deliverable custom notes to selectedMonth and keep root customNote in sync
           const updatedMonthlyNotes = w.monthlyNotes ? { ...w.monthlyNotes } : {};
           if (updates.customNote !== undefined) {
-            if (updates.customNote && updates.customNote.trim()) {
-              updatedMonthlyNotes[targetMonth] = updates.customNote.trim();
+            const trimmed = (updates.customNote || '').trim();
+            if (trimmed && trimmed !== 'undefined') {
+              updatedMonthlyNotes[targetMonth] = trimmed;
             } else {
               delete updatedMonthlyNotes[targetMonth];
             }
@@ -900,13 +938,16 @@ export default function App() {
 
           let rootCustomNote = w.customNote;
           if (updates.customNote !== undefined) {
-            if (updates.customNote && updates.customNote.trim()) {
-              rootCustomNote = updates.customNote.trim();
+            const trimmed = (updates.customNote || '').trim();
+            if (trimmed && trimmed !== 'undefined') {
+              rootCustomNote = trimmed;
             } else if (Object.keys(updatedMonthlyNotes).length === 0) {
               rootCustomNote = undefined;
             } else {
-              const remaining = Object.values(updatedMonthlyNotes).filter(Boolean);
-              rootCustomNote = remaining[remaining.length - 1];
+              const remaining = Object.values(updatedMonthlyNotes).filter(
+                (v) => v && v.trim() && v.trim() !== 'undefined'
+              );
+              rootCustomNote = remaining.length > 0 ? remaining[remaining.length - 1].trim() : undefined;
             }
           }
 
@@ -929,9 +970,10 @@ export default function App() {
         updateWorkNoteInBackup(tw.activity, targetMonth, updates.customNote, updates.notes);
         const noteEntry: StoredDeliverableNote = {
           activity: tw.activity,
-          customNote: tw.customNote || '',
+          customNote:
+            tw.customNote && tw.customNote.trim() !== 'undefined' ? tw.customNote.trim() : '',
           monthlyNotes: tw.monthlyNotes || {},
-          notes: tw.notes || '',
+          notes: tw.notes && tw.notes.trim() !== 'undefined' ? tw.notes.trim() : '',
           updatedAt: new Date().toISOString(),
         };
         cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;

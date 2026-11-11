@@ -10,6 +10,7 @@ import {
   orderBy,
   serverTimestamp,
   arrayUnion,
+  updateDoc,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { TaskItem, DashboardData, SyncSettings } from '../types';
@@ -174,9 +175,21 @@ export async function saveSharedDashboardData(dashboardData: DashboardData): Pro
         count: Number(w.count || 0),
         category: w.category || 'General',
       };
-      if (w.notes !== undefined) item.notes = w.notes;
-      if (w.customNote !== undefined) item.customNote = w.customNote;
-      if (w.monthlyNotes !== undefined) item.monthlyNotes = w.monthlyNotes;
+      if (w.notes !== undefined && w.notes !== 'undefined') item.notes = w.notes;
+      if (w.customNote && w.customNote !== 'undefined' && w.customNote.trim()) {
+        item.customNote = w.customNote.trim();
+      }
+      if (w.monthlyNotes && typeof w.monthlyNotes === 'object') {
+        const cleanMNotes: Record<string, string> = {};
+        for (const [m, t] of Object.entries(w.monthlyNotes)) {
+          if (t && t !== 'undefined' && typeof t === 'string' && t.trim()) {
+            cleanMNotes[m] = t.trim();
+          }
+        }
+        if (Object.keys(cleanMNotes).length > 0) {
+          item.monthlyNotes = cleanMNotes;
+        }
+      }
       if (w.highlight !== undefined) item.highlight = w.highlight;
       if (w.month !== undefined) item.month = w.month;
       if (w.monthlyBreakdown !== undefined) item.monthlyBreakdown = w.monthlyBreakdown;
@@ -433,16 +446,36 @@ export async function saveDeliverableNotesToFirestore(
 ): Promise<void> {
   try {
     const ref = doc(db, CONFIG_COLLECTION, 'deliverable_notes');
-    const payload: Record<string, any> = {
+    const updatePayload: Record<string, any> = {
       updatedAt: new Date().toISOString(),
     };
     if (itemNotes && Object.keys(itemNotes).length > 0) {
-      payload.itemNotes = JSON.parse(JSON.stringify(itemNotes));
+      for (const [k, v] of Object.entries(itemNotes)) {
+        if (k && v) {
+          updatePayload[`itemNotes.${k}`] = JSON.parse(JSON.stringify(v));
+        }
+      }
     }
     if (workListNotes && Object.keys(workListNotes).length > 0) {
-      payload.workListNotes = JSON.parse(JSON.stringify(workListNotes));
+      for (const [k, v] of Object.entries(workListNotes)) {
+        if (k && typeof v === 'string') {
+          updatePayload[`workListNotes.${k}`] = v;
+        }
+      }
     }
-    await setDoc(ref, payload, { merge: true });
+    try {
+      await updateDoc(ref, updatePayload);
+    } catch {
+      await setDoc(
+        ref,
+        {
+          itemNotes: JSON.parse(JSON.stringify(itemNotes || {})),
+          workListNotes: workListNotes || {},
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
   } catch (err) {
     console.warn('Failed to save deliverable_notes to Firestore:', err);
   }

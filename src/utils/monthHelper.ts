@@ -418,17 +418,17 @@ export function getWorksForSelectedMonth(
           existing.count += w.count;
         }
 
-        if (!existing.customNote && w.customNote) {
-          existing.customNote = w.customNote;
+        if (!existing.customNote && w.customNote && w.customNote !== 'undefined') {
+          existing.customNote = w.customNote.trim();
         }
         if (w.monthlyNotes) {
           existing.monthlyNotes = { ...(existing.monthlyNotes || {}), ...w.monthlyNotes };
           if (!existing.customNote) {
             const nonEmpty = Object.values(existing.monthlyNotes).filter(
-              (n) => typeof n === 'string' && n.trim().length > 0
+              (n) => typeof n === 'string' && n.trim().length > 0 && n.trim() !== 'undefined'
             );
             if (nonEmpty.length > 0) {
-              existing.customNote = nonEmpty[nonEmpty.length - 1];
+              existing.customNote = nonEmpty[nonEmpty.length - 1].trim();
             }
           }
         }
@@ -485,12 +485,15 @@ export function getWorksForSelectedMonth(
         for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
           if (isSameMonth(m, selectedMonth)) {
             foundMonthlyNoteKey = true;
-            resolvedCustomNote = noteText && noteText.trim() ? noteText.trim() : undefined;
+            resolvedCustomNote =
+              noteText && typeof noteText === 'string' && noteText.trim() && noteText.trim() !== 'undefined'
+                ? noteText.trim()
+                : undefined;
             break;
           }
         }
       }
-      if (!foundMonthlyNoteKey && w.customNote && w.customNote.trim()) {
+      if (!foundMonthlyNoteKey && w.customNote && w.customNote.trim() && w.customNote.trim() !== 'undefined') {
         if (!w.month || isSameMonth(w.month, selectedMonth)) {
           resolvedCustomNote = w.customNote.trim();
         }
