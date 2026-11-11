@@ -1314,7 +1314,7 @@ export default function App() {
 
   const [isSyncingAllTopics, setIsSyncingAllTopics] = useState(false);
 
-  const handleSyncAllTopicsToGoogleSheet = async () => {
+  const handleSyncAllTopicsToGoogleSheet = async (forceAll: boolean = false) => {
     const webhookUrl = syncSettingsRef.current?.webhookUrl?.trim();
     if (!webhookUrl) {
       setIsSheetModalOpen(true);
@@ -1361,29 +1361,36 @@ export default function App() {
       return;
     }
 
-    // Filter out topics/details that have already been synced to Google Sheet
-    const syncedKeys = getSyncedTopicKeys();
-    const newItems = items.filter(
-      (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
-    );
+    // Filter out topics/details that have already been synced to Google Sheet unless forceAll is true
+    const syncedKeys = forceAll ? new Set<string>() : getSyncedTopicKeys();
+    const itemsToSync = forceAll
+      ? items
+      : items.filter(
+          (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
+        );
 
-    if (newItems.length === 0) {
-      showToast('All details are already synced in your Google Sheet! No duplicates added.', 'info');
+    if (itemsToSync.length === 0) {
+      showToast(
+        'All details are already marked as synced! Click "Force All" next to the button to re-push all details to your sheet.',
+        'info'
+      );
       return;
     }
 
     setIsSyncingAllTopics(true);
     showToast(
-      `Syncing ${newItems.length} new detail(s) to your Google Sheet... (${items.length - newItems.length} already synced)`,
+      forceAll
+        ? `Force re-syncing all ${itemsToSync.length} details to your Google Sheet...`
+        : `Syncing ${itemsToSync.length} new detail(s) to your Google Sheet... (${items.length - itemsToSync.length} already synced)`,
       'info'
     );
 
     try {
       const newlySyncedKeys: string[] = [];
 
-      // Send each new topic row-by-row with verified addTopic action
-      for (let i = 0; i < newItems.length; i++) {
-        const item = newItems[i];
+      // Send each topic row-by-row with verified addTopic action
+      for (let i = 0; i < itemsToSync.length; i++) {
+        const item = itemsToSync[i];
         const queryParams = new URLSearchParams({
           action: 'addTopic',
           deliverable: item.deliverable,
@@ -1414,14 +1421,18 @@ export default function App() {
 
         newlySyncedKeys.push(buildTopicSyncKey(item.deliverable, item.month, item.title));
 
-        if (i < newItems.length - 1) {
+        if (i < itemsToSync.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 150));
         }
       }
 
       markTopicsAsSynced(newlySyncedKeys);
       saveSharedSyncedTopics(newlySyncedKeys).catch(console.warn);
-      showToast(`Successfully added ${newItems.length} new detail(s) into your Google Sheet!`);
+      showToast(
+        forceAll
+          ? `Successfully re-pushed all ${itemsToSync.length} details to your Google Sheet "Topic Breakdown" tab!`
+          : `Successfully added ${itemsToSync.length} new detail(s) into your Google Sheet!`
+      );
     } catch (err) {
       console.error('Error syncing all details to Google Sheet:', err);
       showToast('Sent details to Google Sheet. Please check your sheet.', 'info');

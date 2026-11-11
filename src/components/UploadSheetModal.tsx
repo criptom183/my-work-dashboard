@@ -233,8 +233,8 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
     }
   };
 
-  // Push all existing topics to Google Sheet in bulk
-  const handleBulkSyncTopics = async () => {
+  // Push existing topics to Google Sheet in bulk (or force all)
+  const handleBulkSyncTopics = async (forceAll: boolean = false) => {
     const url = webhookUrl.trim();
     if (!url) {
       setTestResult({
@@ -285,15 +285,17 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       return;
     }
 
-    // Filter out details that have already been synced
-    const syncedKeys = getSyncedTopicKeys();
-    const newItems = items.filter(
-      (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
-    );
+    // Filter out details that have already been synced unless forceAll is true
+    const syncedKeys = forceAll ? new Set<string>() : getSyncedTopicKeys();
+    const itemsToSync = forceAll
+      ? items
+      : items.filter(
+          (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
+        );
 
-    if (newItems.length === 0) {
+    if (itemsToSync.length === 0) {
       setTestResult({
-        message: 'All details are already synced in your Google Sheet! No duplicates were added.',
+        message: 'All details are already marked as synced in your Google Sheet! To push all details again anyway, click "Force Push All Details".',
       });
       return;
     }
@@ -309,9 +311,9 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
 
       const newlySyncedKeys: string[] = [];
 
-      // Send each new detail row-by-row with verified addTopic action
-      for (let i = 0; i < newItems.length; i++) {
-        const item = newItems[i];
+      // Send each detail row-by-row with verified addTopic action
+      for (let i = 0; i < itemsToSync.length; i++) {
+        const item = itemsToSync[i];
         const queryParams = new URLSearchParams({
           action: 'addTopic',
           deliverable: item.deliverable,
@@ -342,7 +344,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
 
         newlySyncedKeys.push(buildTopicSyncKey(item.deliverable, item.month, item.title));
 
-        if (i < newItems.length - 1) {
+        if (i < itemsToSync.length - 1) {
           await new Promise((r) => setTimeout(r, 150));
         }
       }
@@ -353,11 +355,13 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
         .catch(console.warn);
 
       setTestResult({
-        message: `✅ Pushed ${newItems.length} new details into your Google Sheet "Topic Breakdown" tab! (${items.length - newItems.length} were already synced, skipping duplicates).`,
+        message: forceAll
+          ? `✅ Successfully re-pushed all ${itemsToSync.length} details into your Google Sheet "Topic Breakdown" tab!`
+          : `✅ Pushed ${itemsToSync.length} new details into your Google Sheet "Topic Breakdown" tab! (${items.length - itemsToSync.length} were already synced, skipping duplicates).`,
       });
     } catch (err: any) {
       setTestResult({
-        message: `Sent update of ${newItems.length} details. Please check your Google Sheet.`,
+        message: `Sent update of ${itemsToSync.length} details. Please check your Google Sheet.`,
       });
     } finally {
       setIsBulkSyncing(false);
@@ -630,15 +634,28 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
                       </button>
 
                       {totalTopicsCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleBulkSyncTopics}
-                          disabled={isBulkSyncing}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
-                        >
-                          <Send className={`w-3.5 h-3.5 ${isBulkSyncing ? 'animate-spin' : ''}`} />
-                          <span>{isBulkSyncing ? 'Pushing...' : `Push All Dashboard Details (${totalTopicsCount})`}</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleBulkSyncTopics(false)}
+                            disabled={isBulkSyncing}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                            title="Push only details not yet synced to your sheet"
+                          >
+                            <Send className={`w-3.5 h-3.5 ${isBulkSyncing ? 'animate-spin' : ''}`} />
+                            <span>{isBulkSyncing ? 'Pushing...' : `Push New Details`}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBulkSyncTopics(true)}
+                            disabled={isBulkSyncing}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                            title="Force re-push all deliverable details into your Google Sheet"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>{isBulkSyncing ? 'Pushing...' : `Force Push All (${totalTopicsCount})`}</span>
+                          </button>
+                        </>
                       )}
                     </div>
                   )}

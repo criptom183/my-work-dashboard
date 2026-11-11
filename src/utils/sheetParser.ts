@@ -426,6 +426,82 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
     });
   }
 
+  // Check if dedicated 'Topic Breakdown' tab exists in workbook
+  const topicBreakdownSheetName = sheetNames.find((name) => {
+    const l = name.trim().toLowerCase();
+    return l === 'topic breakdown' || l === 'topics' || l === 'details breakdown' || l === 'breakdown';
+  });
+
+  if (topicBreakdownSheetName) {
+    const topicSheet = workbook.Sheets[topicBreakdownSheetName];
+    const rawRows: any[] = XLSX.utils.sheet_to_json(topicSheet, { header: 1 });
+    if (rawRows && rawRows.length > 1) {
+      let monthCol = 1;
+      let deliverableCol = 2;
+      let titleCol = 3;
+      let noteCol = 4;
+
+      // Check header row (row 0)
+      const headerRow = rawRows[0] || [];
+      for (let j = 0; j < headerRow.length; j++) {
+        const h = String(headerRow[j] || '').trim().toLowerCase();
+        if (h.includes('month')) monthCol = j;
+        else if (h.includes('deliverable') || h.includes('work item') || h.includes('activity')) deliverableCol = j;
+        else if (h.includes('title') || h.includes('topic')) titleCol = j;
+        else if (h.includes('note') || h.includes('detail') || h.includes('remark')) noteCol = j;
+      }
+
+      for (let r = 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0) continue;
+        const rawDeliverable = String(row[deliverableCol] || '').trim();
+        const rawTitle = String(row[titleCol] || '').trim();
+        if (!rawDeliverable || !rawTitle) continue;
+        if (rawDeliverable.toLowerCase() === 'dashboard test' || rawTitle.toLowerCase() === 'test topic connection') {
+          continue;
+        }
+
+        const rawMonth = row[monthCol];
+        const normMonth = rawMonth ? normalizeMonth(rawMonth) : latestMonth || 'Nov 2026';
+        const rawNote = row[noteCol] !== undefined && row[noteCol] !== null ? String(row[noteCol]).trim() : '';
+
+        // Match against consolidatedWorks
+        const delivKey = rawDeliverable.toLowerCase();
+        let targetWork = consolidatedWorks.find((w) => {
+          const actKey = w.activity.trim().toLowerCase();
+          return (
+            actKey === delivKey ||
+            (delivKey.startsWith('news or awareness reels') && actKey.startsWith('news or awareness reels')) ||
+            actKey.includes(delivKey) ||
+            delivKey.includes(actKey)
+          );
+        });
+
+        if (targetWork) {
+          const subItem = {
+            id: `sub-sheet-${r}-${rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+            title: rawTitle,
+            note: rawNote || undefined,
+            createdAt: new Date().toISOString(),
+          };
+
+          const mSub = targetWork.monthlySubItems || {};
+          const currentList = mSub[normMonth] ? [...mSub[normMonth]] : [];
+          if (!currentList.some((it) => it.title.trim().toLowerCase() === rawTitle.toLowerCase())) {
+            currentList.push(subItem);
+            mSub[normMonth] = currentList;
+            targetWork.monthlySubItems = mSub;
+
+            if (!targetWork.subItems) targetWork.subItems = [];
+            if (!targetWork.subItems.some((it) => it.title.trim().toLowerCase() === rawTitle.toLowerCase())) {
+              targetWork.subItems.push(subItem);
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Check if dedicated 'Tasks' tab exists in workbook
   let tasks: TaskItem[] | undefined;
   const tasksSheetName = sheetNames.find(

@@ -37,7 +37,7 @@ interface BrandWorksCompletedProps {
   onDeleteSubItem?: (workItemId: string, subItemId: string) => void;
   onExportSubItemsSheet?: () => void;
   onOpenSyncModal?: () => void;
-  onSyncAllTopics?: () => void;
+  onSyncAllTopics?: (forceAll?: boolean) => void;
   isSyncingAllTopics?: boolean;
   isViewOnly?: boolean;
 }
@@ -269,16 +269,27 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
 
           <div className="flex items-center gap-2">
             {!isViewOnly && onSyncAllTopics && subList.length > 0 && (
-              <button
-                type="button"
-                onClick={onSyncAllTopics}
-                disabled={isSyncingAllTopics}
-                className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 inline-flex items-center gap-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-colors"
-                title="Sync all dashboard details into your Google Sheet"
-              >
-                <UploadCloud className="w-2.5 h-2.5 text-indigo-600" />
-                <span>Sync Details to Sheet</span>
-              </button>
+              <div className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 shadow-2xs overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => onSyncAllTopics(false)}
+                  disabled={isSyncingAllTopics}
+                  className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 inline-flex items-center gap-1 cursor-pointer px-1.5 py-0.5 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                  title="Sync new details into your Google Sheet"
+                >
+                  <UploadCloud className="w-2.5 h-2.5 text-indigo-600" />
+                  <span>Sync to Sheet</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSyncAllTopics(true)}
+                  disabled={isSyncingAllTopics}
+                  className="text-[9px] font-bold text-indigo-500 hover:text-indigo-800 border-l border-indigo-200 px-1 py-0.5 hover:bg-indigo-100 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Force re-sync all details into your Google Sheet"
+                >
+                  Force All
+                </button>
+              </div>
             )}
             {!isViewOnly && onExportSubItemsSheet && (
               <button
@@ -500,16 +511,27 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
             )}
 
             {!isViewOnly && onSyncAllTopics && (
-              <button
-                type="button"
-                onClick={onSyncAllTopics}
-                disabled={isSyncingAllTopics}
-                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
-                title="Push all previously added details to your Google Sheet now"
-              >
-                <UploadCloud className={`w-3 h-3 ${isSyncingAllTopics ? 'animate-spin' : ''}`} />
-                <span>{isSyncingAllTopics ? 'Syncing...' : 'Sync All Details to Sheet'}</span>
-              </button>
+              <div className="inline-flex items-center rounded-md shadow-xs bg-indigo-600 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => onSyncAllTopics(false)}
+                  disabled={isSyncingAllTopics}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-bold text-white hover:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Push new/unsynced details to your Google Sheet"
+                >
+                  <UploadCloud className={`w-3 h-3 ${isSyncingAllTopics ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingAllTopics ? 'Syncing...' : 'Sync All Details to Sheet'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSyncAllTopics(true)}
+                  disabled={isSyncingAllTopics}
+                  className="px-2 py-0.5 border-l border-indigo-500/50 text-[10px] font-bold text-indigo-100 hover:text-white hover:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Force re-sync all details to Google Sheet"
+                >
+                  Force All
+                </button>
+              </div>
             )}
 
             {!isViewOnly && onOpenSyncModal && (
