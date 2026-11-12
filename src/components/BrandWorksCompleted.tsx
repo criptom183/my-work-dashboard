@@ -18,10 +18,21 @@ import {
   FileSpreadsheet,
   CornerDownRight,
   UploadCloud,
+  FolderOpen,
+  ExternalLink,
+  Link2,
 } from 'lucide-react';
 import { WorkItem, DeliverableSubItem } from '../types';
 import { isSameMonth } from '../utils/monthHelper';
 import { deduplicateSubItems } from '../utils/storage';
+
+function normalizeDriveHref(url?: string): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
 
 interface BrandWorksCompletedProps {
   works: WorkItem[];
@@ -30,11 +41,26 @@ interface BrandWorksCompletedProps {
   allWorks?: WorkItem[];
   workListNote?: string;
   onUpdateWorkListNote?: (note: string) => void;
-  onAddWorkItem: (activity: string, count: number, category: string, notes?: string) => void;
+  onAddWorkItem: (
+    activity: string,
+    count: number,
+    category: string,
+    notes?: string,
+    driveLink?: string
+  ) => void;
   onUpdateWorkItem?: (id: string, updates: Partial<WorkItem>) => void;
   onDeleteWorkItem?: (id: string) => void;
-  onAddSubItem?: (workItemId: string, title: string, note?: string) => void;
-  onUpdateSubItem?: (workItemId: string, subItemId: string, updates: { title?: string; note?: string }) => void;
+  onAddSubItem?: (
+    workItemId: string,
+    title: string,
+    note?: string,
+    driveLink?: string
+  ) => void;
+  onUpdateSubItem?: (
+    workItemId: string,
+    subItemId: string,
+    updates: { title?: string; note?: string; driveLink?: string }
+  ) => void;
   onDeleteSubItem?: (workItemId: string, subItemId: string) => void;
   onExportSubItemsSheet?: () => void;
   onOpenSyncModal?: () => void;
@@ -113,12 +139,15 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   const [newCount, setNewCount] = useState('1');
   const [newCategory, setNewCategory] = useState('Social Media');
   const [newNotes, setNewNotes] = useState('');
+  const [newDriveLink, setNewDriveLink] = useState('');
 
   // Collapsible sub-items state: which deliverables are expanded
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
 
-  // Draft inputs for adding a new topic per deliverable: { [workItemId]: { title: string, note: string } }
-  const [topicDrafts, setTopicDrafts] = useState<Record<string, { title: string; note: string }>>({});
+  // Draft inputs for adding a new topic per deliverable: { [workItemId]: { title: string, note: string, driveLink: string } }
+  const [topicDrafts, setTopicDrafts] = useState<
+    Record<string, { title: string; note: string; driveLink: string }>
+  >({});
 
   // Editing state for an individual sub-item
   const [editingSubItem, setEditingSubItem] = useState<{
@@ -126,6 +155,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
     subItemId: string;
     title: string;
     note: string;
+    driveLink: string;
   } | null>(null);
 
   // Toggle expand/collapse for a deliverable
@@ -147,6 +177,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
       [workItemId]: {
         title,
         note: prev[workItemId]?.note || '',
+        driveLink: prev[workItemId]?.driveLink || '',
       },
     }));
   };
@@ -157,6 +188,18 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
       [workItemId]: {
         title: prev[workItemId]?.title || '',
         note,
+        driveLink: prev[workItemId]?.driveLink || '',
+      },
+    }));
+  };
+
+  const updateDraftDriveLink = (workItemId: string, driveLink: string) => {
+    setTopicDrafts((prev) => ({
+      ...prev,
+      [workItemId]: {
+        title: prev[workItemId]?.title || '',
+        note: prev[workItemId]?.note || '',
+        driveLink,
       },
     }));
   };
@@ -167,12 +210,17 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
     const draft = topicDrafts[workItemId];
     if (!draft || !draft.title.trim()) return;
 
-    onAddSubItem(workItemId, draft.title.trim(), draft.note.trim() || undefined);
+    onAddSubItem(
+      workItemId,
+      draft.title.trim(),
+      draft.note.trim() || undefined,
+      draft.driveLink?.trim() || undefined
+    );
 
     // Reset draft for this item
     setTopicDrafts((prev) => ({
       ...prev,
-      [workItemId]: { title: '', note: '' },
+      [workItemId]: { title: '', note: '', driveLink: '' },
     }));
   };
 
@@ -181,6 +229,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
     onUpdateSubItem(editingSubItem.workItemId, editingSubItem.subItemId, {
       title: editingSubItem.title.trim(),
       note: editingSubItem.note.trim() || undefined,
+      driveLink: editingSubItem.driveLink.trim() || undefined,
     });
     setEditingSubItem(null);
   };
@@ -188,6 +237,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   // Inline quick-note state per work item
   const [inlineNoteId, setInlineNoteId] = useState<string | null>(null);
   const [inlineNoteText, setInlineNoteText] = useState('');
+
+  // Inline Drive link state per work item
+  const [inlineDriveId, setInlineDriveId] = useState<string | null>(null);
+  const [inlineDriveText, setInlineDriveText] = useState('');
 
   // Section-level work list note state
   const [isEditingListNote, setIsEditingListNote] = useState(false);
@@ -198,6 +251,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   const [editCount, setEditCount] = useState(0);
   const [editNotes, setEditNotes] = useState('');
   const [editCustomNote, setEditCustomNote] = useState('');
+  const [editDriveLink, setEditDriveLink] = useState('');
 
   // Only consider items with count > 0
   const visibleWorks = works.filter((w) => (w.count || 0) > 0);
@@ -216,16 +270,19 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
       newActivity.trim(),
       parseInt(newCount, 10) || 1,
       newCategory,
-      newNotes.trim() || undefined
+      newNotes.trim() || undefined,
+      newDriveLink.trim() || undefined
     );
     setNewActivity('');
     setNewCount('1');
     setNewNotes('');
+    setNewDriveLink('');
     setIsAddingOpen(false);
   };
 
   const openInlineNote = (item: WorkItem) => {
     if (isViewOnly) return;
+    setInlineDriveId(null);
     setInlineNoteId(item.id);
     setInlineNoteText(item.customNote || '');
   };
@@ -249,6 +306,34 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
     }
     setInlineNoteId(null);
     setInlineNoteText('');
+  };
+
+  const openInlineDrive = (item: WorkItem) => {
+    if (isViewOnly) return;
+    setInlineNoteId(null);
+    setInlineDriveId(item.id);
+    setInlineDriveText(item.driveLink || '');
+  };
+
+  const saveInlineDrive = (item: WorkItem) => {
+    if (onUpdateWorkItem) {
+      onUpdateWorkItem(item.id, {
+        driveLink: inlineDriveText.trim(),
+      });
+    }
+    setInlineDriveId(null);
+    setInlineDriveText('');
+  };
+
+  const clearItemDrive = (item: WorkItem) => {
+    if (isViewOnly) return;
+    if (onUpdateWorkItem) {
+      onUpdateWorkItem(item.id, {
+        driveLink: '',
+      });
+    }
+    setInlineDriveId(null);
+    setInlineDriveText('');
   };
 
   const renderTopicsPanel = (item: WorkItem) => {
@@ -349,6 +434,17 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                           )
                         }
                         placeholder="Short note (optional)..."
+                        className="sm:w-44 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                      />
+                      <input
+                        type="url"
+                        value={editingSubItem.driveLink}
+                        onChange={(e) =>
+                          setEditingSubItem((prev) =>
+                            prev ? { ...prev, driveLink: e.target.value } : null
+                          )
+                        }
+                        placeholder="Drive file/folder link (optional)..."
                         className="sm:w-52 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
                       />
                     </div>
@@ -382,9 +478,24 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                       {idx + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-800 break-words leading-snug">
-                        {sub.title}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-semibold text-slate-800 break-words leading-snug">
+                          {sub.title}
+                        </p>
+                        {sub.driveLink && (
+                          <a
+                            href={normalizeDriveHref(sub.driveLink)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 text-[10px] font-bold transition-colors"
+                            title="Open Drive file or folder"
+                          >
+                            <FolderOpen className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>Drive</span>
+                            <ExternalLink className="w-2 h-2 opacity-75" />
+                          </a>
+                        )}
+                      </div>
                       {sub.note && (
                         <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed break-words">
                           {sub.note}
@@ -404,10 +515,11 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               subItemId: sub.id,
                               title: sub.title,
                               note: sub.note || '',
+                              driveLink: sub.driveLink || '',
                             })
                           }
                           className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
-                          title="Edit detail"
+                          title="Edit detail or Drive link"
                         >
                           <Edit2 className="w-3 h-3" />
                         </button>
@@ -454,7 +566,14 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 value={topicDrafts[item.id]?.note || ''}
                 onChange={(e) => updateDraftNote(item.id, e.target.value)}
                 placeholder="Short note (optional)..."
-                className="sm:w-52 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
+                className="sm:w-44 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
+              />
+              <input
+                type="url"
+                value={topicDrafts[item.id]?.driveLink || ''}
+                onChange={(e) => updateDraftDriveLink(item.id, e.target.value)}
+                placeholder="Drive link (optional)..."
+                className="sm:w-44 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
               />
               <button
                 type="submit"
@@ -681,6 +800,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               const { icon, bg, barColor } = getActivityIcon(item.activity);
               const percentage = totalCount > 0 ? ((item.count / totalCount) * 100).toFixed(1) : '0';
               const isEditingThisNote = !isViewOnly && inlineNoteId === item.id;
+              const isEditingThisDrive = !isViewOnly && inlineDriveId === item.id;
               const isExpanded = expandedItemIds.has(item.id);
 
               return (
@@ -734,6 +854,45 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             )}
                           </button>
 
+                          {/* Google Drive Folder / File Link Badge */}
+                          {item.driveLink ? (
+                            <div className="inline-flex items-center rounded-lg bg-emerald-50 border border-emerald-200/90 shadow-2xs overflow-hidden shrink-0">
+                              <a
+                                href={normalizeDriveHref(item.driveLink)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:text-emerald-950 hover:bg-emerald-100/80 transition-colors"
+                                title="Open files in Google Drive"
+                              >
+                                <FolderOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>Drive Files</span>
+                                <ExternalLink className="w-3 h-3 opacity-75 shrink-0" />
+                              </a>
+                              {!isViewOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => openInlineDrive(item)}
+                                  className="px-1.5 py-1 border-l border-emerald-200/80 text-emerald-600 hover:text-emerald-900 hover:bg-emerald-100 transition-colors cursor-pointer"
+                                  title="Edit Drive link"
+                                >
+                                  <Edit2 className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            !isViewOnly && (
+                              <button
+                                type="button"
+                                onClick={() => openInlineDrive(item)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100/80 border border-emerald-200/60 transition-colors cursor-pointer shrink-0"
+                                title="Attach Google Drive link for this deliverable"
+                              >
+                                <Link2 className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>+ Drive Link</span>
+                              </button>
+                            )
+                          )}
+
                           {/* Discreet Note action for editors */}
                           {!isViewOnly && (
                             <button
@@ -760,6 +919,51 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                       <p className="text-xs text-slate-500 truncate mb-1">
                         {item.notes || `${item.category} deliverables`}
                       </p>
+
+                      {/* Inline Quick Drive Link Input */}
+                      {!isViewOnly && isEditingThisDrive && (
+                        <div className="mb-2 p-2 rounded-lg bg-emerald-50/60 border border-emerald-200 flex items-center gap-1.5">
+                          <FolderOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <input
+                            type="url"
+                            value={inlineDriveText}
+                            onChange={(e) => setInlineDriveText(e.target.value)}
+                            placeholder={`Paste Google Drive folder or file link for ${item.activity}...`}
+                            className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-emerald-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-600 text-slate-800"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveInlineDrive(item);
+                              if (e.key === 'Escape') setInlineDriveId(null);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveInlineDrive(item)}
+                            className="p-1 px-2.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold transition-colors cursor-pointer shrink-0 flex items-center gap-1"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>Save Link</span>
+                          </button>
+                          {item.driveLink && (
+                            <button
+                              type="button"
+                              onClick={() => clearItemDrive(item)}
+                              className="p-1 px-2 rounded text-rose-600 hover:bg-rose-50 text-[11px] font-semibold transition-colors cursor-pointer shrink-0"
+                              title="Remove Drive link"
+                            >
+                              Clear
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setInlineDriveId(null)}
+                            className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                            title="Cancel"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
 
                       {/* Display Attached Note: Soft, compact amber background without dominating */}
                       {item.customNote && !isEditingThisNote && (
@@ -848,6 +1052,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                                 setEditCount(item.count);
                                 setEditNotes(item.notes || '');
                                 setEditCustomNote(item.customNote || '');
+                                setEditDriveLink(item.driveLink || '');
                               }
                             : undefined
                         }
@@ -856,7 +1061,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             ? 'cursor-pointer hover:text-[#E11D74]'
                             : 'cursor-default'
                         }`}
-                        title={!isViewOnly ? 'Click to edit count or details' : undefined}
+                        title={!isViewOnly ? 'Click to edit count, notes, or Drive link' : undefined}
                       >
                         {item.count}
                       </span>
@@ -882,7 +1087,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200/80 text-slate-400 font-semibold uppercase text-[11px]">
-                <th className="py-3 px-3">Activity & Note</th>
+                <th className="py-3 px-3">Activity &amp; Links</th>
                 <th className="py-3 px-3">Category</th>
                 {availableMonths.map((m) => (
                   <th key={m} className="py-3 px-3 text-right tabular-nums">
@@ -899,12 +1104,50 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     ? Object.values(w.monthlyBreakdown).reduce((a: number, b) => a + (Number(b) || 0), 0)
                     : w.count;
                 const isEditingThisNote = inlineNoteId === w.id;
+                const isEditingThisDrive = inlineDriveId === w.id;
 
                 return (
                   <tr key={w.id} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-slate-900">{w.activity}</span>
+                        {w.driveLink ? (
+                          <div className="inline-flex items-center rounded bg-emerald-50 border border-emerald-200/80 overflow-hidden">
+                            <a
+                              href={normalizeDriveHref(w.driveLink)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 transition-colors"
+                              title="Open Google Drive"
+                            >
+                              <FolderOpen className="w-2.5 h-2.5 text-emerald-600" />
+                              <span>Drive</span>
+                              <ExternalLink className="w-2 h-2 opacity-75" />
+                            </a>
+                            {!isViewOnly && (
+                              <button
+                                type="button"
+                                onClick={() => openInlineDrive(w)}
+                                className="px-1 py-0.5 border-l border-emerald-200 text-emerald-600 hover:bg-emerald-100 cursor-pointer"
+                                title="Edit Drive link"
+                              >
+                                <Edit2 className="w-2 h-2" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          !isViewOnly && (
+                            <button
+                              type="button"
+                              onClick={() => openInlineDrive(w)}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 transition-colors cursor-pointer"
+                              title="Add Drive link"
+                            >
+                              <Link2 className="w-2.5 h-2.5" />
+                              <span>+ Drive</span>
+                            </button>
+                          )
+                        )}
                         {!isViewOnly && (
                           <button
                             type="button"
@@ -917,6 +1160,36 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                           </button>
                         )}
                       </div>
+                      {!isViewOnly && isEditingThisDrive && (
+                        <div className="mt-1.5 flex items-center gap-1.5 max-w-sm">
+                          <input
+                            type="url"
+                            value={inlineDriveText}
+                            onChange={(e) => setInlineDriveText(e.target.value)}
+                            placeholder="Paste Google Drive URL..."
+                            className="flex-1 px-2 py-1 text-xs bg-white border border-emerald-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveInlineDrive(w);
+                              if (e.key === 'Escape') setInlineDriveId(null);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveInlineDrive(w)}
+                            className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-semibold cursor-pointer"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setInlineDriveId(null)}
+                            className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                       {w.customNote && !isEditingThisNote && (
                         <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 border border-amber-200/80 text-[11px] text-amber-900">
                           <StickyNote className="w-2.5 h-2.5 text-amber-600 shrink-0" />
@@ -1002,6 +1275,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               <tr className="border-b border-slate-200/80 text-slate-400 font-semibold uppercase text-[11px]">
                 <th className="py-3 px-3">Activity</th>
                 <th className="py-3 px-3">Category</th>
+                <th className="py-3 px-3">Drive Files</th>
                 <th className="py-3 px-3">Notes / Remarks</th>
                 <th className="py-3 px-3 text-right tabular-nums">Count</th>
                 {!isViewOnly && <th className="py-3 px-3 text-right">Action</th>}
@@ -1010,6 +1284,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
             <tbody className="divide-y divide-slate-100">
               {visibleWorks.map((w) => {
                 const isEditingThisNote = !isViewOnly && inlineNoteId === w.id;
+                const isEditingThisDrive = !isViewOnly && inlineDriveId === w.id;
                 const isExpanded = expandedItemIds.has(w.id);
 
                 return (
@@ -1051,6 +1326,73 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                         </div>
                       </td>
                       <td className="py-3 px-3 text-slate-500">{w.category}</td>
+                      <td className="py-3 px-3">
+                        {!isViewOnly && isEditingThisDrive ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="url"
+                              value={inlineDriveText}
+                              onChange={(e) => setInlineDriveText(e.target.value)}
+                              placeholder="Paste Drive URL..."
+                              className="w-40 px-2 py-1 text-xs bg-white border border-emerald-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveInlineDrive(w);
+                                if (e.key === 'Escape') setInlineDriveId(null);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveInlineDrive(w)}
+                              className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-semibold cursor-pointer"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInlineDriveId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : w.driveLink ? (
+                          <div className="inline-flex items-center rounded-lg bg-emerald-50 border border-emerald-200/80 overflow-hidden">
+                            <a
+                              href={normalizeDriveHref(w.driveLink)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
+                              title="Open files in Google Drive"
+                            >
+                              <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Open Drive</span>
+                              <ExternalLink className="w-2.5 h-2.5 opacity-75" />
+                            </a>
+                            {!isViewOnly && (
+                              <button
+                                type="button"
+                                onClick={() => openInlineDrive(w)}
+                                className="px-1.5 py-1 border-l border-emerald-200 text-emerald-600 hover:bg-emerald-100 cursor-pointer"
+                                title="Edit Drive link"
+                              >
+                                <Edit2 className="w-2.5 h-2.5" />
+                              </button>
+                            )}
+                          </div>
+                        ) : !isViewOnly ? (
+                          <button
+                            type="button"
+                            onClick={() => openInlineDrive(w)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200/60 transition-colors cursor-pointer"
+                          >
+                            <Link2 className="w-3 h-3 text-emerald-600" />
+                            <span>+ Drive Link</span>
+                          </button>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
                       <td className="py-3 px-3 text-slate-600 max-w-xs">
                         {!isViewOnly && isEditingThisNote ? (
                           <div className="flex items-center gap-1.5">
@@ -1115,9 +1457,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               setEditCount(w.count);
                               setEditNotes(w.notes || '');
                               setEditCustomNote(w.customNote || '');
+                              setEditDriveLink(w.driveLink || '');
                             }}
                             className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                            title="Edit count & notes"
+                            title="Edit count, notes & Drive link"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -1137,7 +1480,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     {/* Collapsible Topics Row in Table View */}
                     {isExpanded && (
                       <tr className="bg-slate-50/70">
-                        <td colSpan={isViewOnly ? 4 : 5} className="py-3 px-4">
+                        <td colSpan={isViewOnly ? 5 : 6} className="py-3 px-4">
                           {renderTopicsPanel(w)}
                         </td>
                       </tr>
@@ -1234,6 +1577,19 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Google Drive Folder / File Link (Optional)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  value={newDriveLink}
+                  onChange={(e) => setNewDriveLink(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Small Note / Description (Optional)
                 </label>
                 <textarea
@@ -1265,7 +1621,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
         </div>
       )}
 
-      {/* Edit Activity Count & Note Modal */}
+      {/* Edit Activity Count, Drive Link & Note Modal */}
       {editingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 shadow-xl overflow-hidden p-6 animate-in zoom-in-95 duration-150">
@@ -1281,6 +1637,18 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                   value={editCount}
                   onChange={(e) => setEditCount(parseInt(e.target.value, 10) || 0)}
                   className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#E11D74] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Google Drive Folder / File Link (Optional)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://drive.google.com/..."
+                  value={editDriveLink}
+                  onChange={(e) => setEditDriveLink(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                 />
               </div>
               <div>
@@ -1323,6 +1691,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                       count: editCount,
                       notes: editNotes,
                       customNote: editCustomNote.trim(),
+                      driveLink: editDriveLink.trim(),
                     });
                   }
                   setEditingItem(null);

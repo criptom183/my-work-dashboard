@@ -15,11 +15,20 @@ import {
   FileText,
   Palette,
   ExternalLink,
+  FolderOpen,
 } from 'lucide-react';
 import { DashboardData, WorkItem, TaskItem } from '../types';
 import { computeMoMStats, getWorksForSelectedMonth } from '../utils/monthHelper';
 import { deduplicateSubItems } from '../utils/storage';
 import vzoneLogo from '../assets/vzone-logo.png';
+
+const normalizeDriveHref = (raw?: string): string => {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+};
 
 interface PresentationModeProps {
   data: DashboardData;
@@ -704,7 +713,22 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                       return (
                         <div key={w.id} className="flex items-center justify-between gap-4">
                           <div className="min-w-0 flex-1">
-                            <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
+                              {w.driveLink && (
+                                <a
+                                  href={normalizeDriveHref(w.driveLink)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold transition-colors"
+                                  title="Open Google Drive Files"
+                                >
+                                  <FolderOpen className="w-3 h-3" />
+                                  <span>Drive Files</span>
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                            </div>
                             <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-400">
                               {w.customNote &&
                                 (w.customNote.toLowerCase().includes('pending') ? (
@@ -780,7 +804,22 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                         return (
                           <div key={w.id} className="flex items-center justify-between gap-4">
                             <div className="min-w-0 flex-1">
-                              <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-sm font-bold text-white truncate">{w.activity}</h4>
+                                {w.driveLink && (
+                                  <a
+                                    href={normalizeDriveHref(w.driveLink)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold transition-colors"
+                                    title="Open Google Drive Files"
+                                  >
+                                    <FolderOpen className="w-3 h-3" />
+                                    <span>Drive Files</span>
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-400">
                                 {w.customNote && <span>{w.customNote}</span>}
                                 {w.customNote && subItems.length > 0 && <span>·</span>}
@@ -830,7 +869,21 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                       <div className="space-y-3">
                         {marketingWorks.map((w) => (
                           <div key={w.id} className="text-xs">
-                            <span className="font-bold text-white block">{w.activity}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-white">{w.activity}</span>
+                              {w.driveLink && (
+                                <a
+                                  href={normalizeDriveHref(w.driveLink)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold transition-colors"
+                                >
+                                  <FolderOpen className="w-2.5 h-2.5" />
+                                  <span>Drive</span>
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                            </div>
                             {w.customNote && (
                               <p className="text-slate-400 mt-0.5 leading-snug">{w.customNote}</p>
                             )}
@@ -869,7 +922,21 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                       <div className="space-y-3">
                         {designWorks.map((w) => (
                           <div key={w.id} className="text-xs">
-                            <span className="font-bold text-white block">{w.activity}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-white">{w.activity}</span>
+                              {w.driveLink && (
+                                <a
+                                  href={normalizeDriveHref(w.driveLink)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold transition-colors"
+                                >
+                                  <FolderOpen className="w-2.5 h-2.5" />
+                                  <span>Drive</span>
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                            </div>
                             {w.customNote && (
                               <p className="text-slate-400 mt-0.5 leading-snug">{w.customNote}</p>
                             )}
@@ -1042,9 +1109,23 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#E11D74]">
                   {activeDetailModal.category || 'General'}
                 </span>
-                <h3 className="text-lg font-bold text-white mt-0.5">
-                  {activeDetailModal.activity}
-                </h3>
+                <div className="flex items-center gap-2.5 flex-wrap mt-0.5">
+                  <h3 className="text-lg font-bold text-white">
+                    {activeDetailModal.activity}
+                  </h3>
+                  {activeDetailModal.driveLink && (
+                    <a
+                      href={normalizeDriveHref(activeDetailModal.driveLink)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-colors"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>Open Drive Folder</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() => setActiveDetailModal(null)}
@@ -1060,8 +1141,22 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
                   key={s.id || idx}
                   className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs"
                 >
-                  <div className="font-semibold text-white">
-                    {idx + 1}. {s.title}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-white">
+                      {idx + 1}. {s.title}
+                    </div>
+                    {s.driveLink && (
+                      <a
+                        href={normalizeDriveHref(s.driveLink)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold shrink-0"
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                        <span>Drive File</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    )}
                   </div>
                   {s.note && (
                     <div className="text-indigo-200/80 mt-1 pl-4 border-l-2 border-indigo-500/50">

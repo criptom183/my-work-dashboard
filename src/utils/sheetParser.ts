@@ -100,8 +100,20 @@ function isActivityHeader(str: string): boolean {
   );
 }
 
+function isDriveLinkHeader(str: string): boolean {
+  const s = cleanLower(str);
+  return (
+    s.includes('drive') ||
+    s.includes('folder') ||
+    s.includes('link') ||
+    s.includes('url') ||
+    s.includes('file') ||
+    s.includes('asset')
+  );
+}
+
 function isNotesHeader(str: string): boolean {
-  if (isSNoHeader(str) || isCountHeader(str) || isActivityHeader(str)) return false;
+  if (isSNoHeader(str) || isCountHeader(str) || isActivityHeader(str) || isDriveLinkHeader(str)) return false;
   const s = cleanLower(str);
   return (
     s.includes('note') ||
@@ -395,13 +407,26 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
       }
 
       activityMap.set(key, {
-        baseItem: { ...w },
+        baseItem: {
+          ...w,
+          monthlyDriveLinks:
+            w.month && w.driveLink ? { [w.month]: w.driveLink } : w.monthlyDriveLinks,
+        },
         breakdown,
       });
     } else {
       const entry = activityMap.get(key)!;
       if (w.notes && !entry.baseItem.notes) {
         entry.baseItem.notes = w.notes;
+      }
+      if (w.driveLink) {
+        entry.baseItem.driveLink = w.driveLink;
+        if (w.month) {
+          entry.baseItem.monthlyDriveLinks = {
+            ...(entry.baseItem.monthlyDriveLinks || {}),
+            [w.month]: w.driveLink,
+          };
+        }
       }
       if (w.monthlyBreakdown) {
         for (const [bm, count] of Object.entries(w.monthlyBreakdown)) {
@@ -441,6 +466,7 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
       let deliverableCol = 2;
       let titleCol = 3;
       let noteCol = 4;
+      let driveLinkCol = -1;
 
       // Check header row (row 0)
       const headerRow = rawRows[0] || [];
@@ -449,6 +475,7 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
         if (h.includes('month')) monthCol = j;
         else if (h.includes('deliverable') || h.includes('work item') || h.includes('activity')) deliverableCol = j;
         else if (h.includes('title') || h.includes('topic')) titleCol = j;
+        else if (h.includes('drive') || h.includes('link') || h.includes('url') || h.includes('folder')) driveLinkCol = j;
         else if (h.includes('note') || h.includes('detail') || h.includes('remark')) noteCol = j;
       }
 
@@ -465,6 +492,10 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
         const rawMonth = row[monthCol];
         const normMonth = rawMonth ? normalizeMonth(rawMonth) : latestMonth || 'Nov 2026';
         const rawNote = row[noteCol] !== undefined && row[noteCol] !== null ? String(row[noteCol]).trim() : '';
+        const rawDriveLink =
+          driveLinkCol !== -1 && row[driveLinkCol] !== undefined && row[driveLinkCol] !== null
+            ? String(row[driveLinkCol]).trim()
+            : '';
 
         // Match against consolidatedWorks
         const delivKey = rawDeliverable.toLowerCase();
@@ -484,6 +515,7 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
             id: `sub-sheet-${normMonth.toLowerCase().replace(/[^a-z0-9]/g, '')}-${normTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
             title: normTitle,
             note: rawNote || undefined,
+            driveLink: rawDriveLink || undefined,
             createdAt: new Date().toISOString(),
           };
 
@@ -495,6 +527,9 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
           if (existingIdx >= 0) {
             if (rawNote && (!currentList[existingIdx].note || !currentList[existingIdx].note.trim())) {
               currentList[existingIdx].note = rawNote;
+            }
+            if (rawDriveLink && (!currentList[existingIdx].driveLink || !currentList[existingIdx].driveLink.trim())) {
+              currentList[existingIdx].driveLink = rawDriveLink;
             }
           } else {
             currentList.push(subItem);
@@ -509,6 +544,9 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
           if (rootIdx >= 0) {
             if (rawNote && (!targetWork.subItems[rootIdx].note || !targetWork.subItems[rootIdx].note.trim())) {
               targetWork.subItems[rootIdx].note = rawNote;
+            }
+            if (rawDriveLink && (!targetWork.subItems[rootIdx].driveLink || !targetWork.subItems[rootIdx].driveLink.trim())) {
+              targetWork.subItems[rootIdx].driveLink = rawDriveLink;
             }
           } else {
             targetWork.subItems.push(subItem);
@@ -554,7 +592,7 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
 
 /**
  * Intelligent parser for "Works Completed" table
- * Handles S.No, Activity names, Delivered counts, and Details/Notes with data-driven validation
+ * Handles S.No, Activity names, Delivered counts, Details/Notes, and Drive Links with data-driven validation
  */
 export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkItem[] {
   if (!rows || rows.length === 0) return [];
@@ -564,6 +602,7 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
   let activityCol = -1;
   let countCol = -1;
   let notesCol = -1;
+  let driveLinkCol = -1;
   let categoryCol = -1;
   let monthCol = -1;
   const horizontalMonthCols: { colIndex: number; month: string }[] = [];
@@ -581,6 +620,7 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
     let tempAct = -1;
     let tempCount = -1;
     let tempNotes = -1;
+    let tempDriveLink = -1;
     let tempCat = -1;
     let tempMonth = -1;
     const tempHorizontalMonths: { colIndex: number; month: string }[] = [];
@@ -599,6 +639,8 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
         tempCount = j;
       } else if (isActivityHeader(cell)) {
         tempAct = j;
+      } else if (isDriveLinkHeader(cell)) {
+        tempDriveLink = j;
       } else if (isNotesHeader(cell)) {
         tempNotes = j;
       } else if (isCategoryHeader(cell)) {
@@ -613,6 +655,7 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
       activityCol = tempAct;
       countCol = tempCount;
       notesCol = tempNotes;
+      driveLinkCol = tempDriveLink;
       categoryCol = tempCat;
       monthCol = tempMonth;
       if (tempHorizontalMonths.length >= 1) {
@@ -700,10 +743,10 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
     }
   }
 
-  // If notesCol wasn't found, look for another text column that isn't activityCol or sNoCol
+  // If notesCol wasn't found, look for another text column that isn't activityCol or sNoCol or driveLinkCol
   if (notesCol === -1) {
     for (let c = 0; c < numCols; c++) {
-      if (c === sNoCol || c === activityCol || c === countCol || c === categoryCol) continue;
+      if (c === sNoCol || c === activityCol || c === countCol || c === categoryCol || c === driveLinkCol) continue;
       const stats = colTextStats[c];
       if (stats && stats.textCount > 0) {
         notesCol = c;
@@ -788,6 +831,21 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
     // Extract notes / details
     let notes = notesCol !== -1 && row[notesCol] ? clean(row[notesCol]) : undefined;
 
+    // Extract Drive Link if present in driveLinkCol or any cell containing drive.google.com
+    let driveLink = driveLinkCol !== -1 && row[driveLinkCol] ? clean(row[driveLinkCol]) : undefined;
+    if (!driveLink) {
+      for (let c = 0; c < row.length; c++) {
+        const cellVal = clean(row[c]);
+        if (
+          cellVal &&
+          (cellVal.includes('drive.google.com') || cellVal.includes('docs.google.com/folder'))
+        ) {
+          driveLink = cellVal;
+          break;
+        }
+      }
+    }
+
     // If notes is empty, check if the activity text contains details in parentheses
     // e.g. "Video branding page Desig. (as per Anwar sir's instructions)"
     if (!notes && act.includes('(') && act.includes(')')) {
@@ -824,6 +882,7 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
         count,
         category: cat,
         notes: notes || undefined,
+        driveLink: driveLink || undefined,
         month: latestMonth,
         monthlyBreakdown,
       });
@@ -845,6 +904,7 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
       count,
       category: cat,
       notes: notes || undefined,
+      driveLink: driveLink || undefined,
       month: itemMonth,
     });
   }

@@ -43,13 +43,25 @@ export function deduplicateSubItems(list?: DeliverableSubItem[]): DeliverableSub
         id: item.id || `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         title: item.title.trim(),
         note: item.note && item.note.trim() ? item.note.trim() : undefined,
+        driveLink:
+          item.driveLink && item.driveLink.trim() && item.driveLink.trim() !== 'undefined'
+            ? item.driveLink.trim()
+            : undefined,
         createdAt: item.createdAt || new Date().toISOString(),
       });
     } else {
-      // Merge into existing item: if existing item has no note, but this duplicate has a note, preserve it
+      // Merge into existing item: if existing item has no note or driveLink, preserve it
       const existing = map.get(normTitle)!;
       if ((!existing.note || !existing.note.trim()) && item.note && item.note.trim()) {
         existing.note = item.note.trim();
+      }
+      if (
+        (!existing.driveLink || !existing.driveLink.trim()) &&
+        item.driveLink &&
+        item.driveLink.trim() &&
+        item.driveLink.trim() !== 'undefined'
+      ) {
+        existing.driveLink = item.driveLink.trim();
       }
       if (!existing.createdAt && item.createdAt) {
         existing.createdAt = item.createdAt;
@@ -91,6 +103,8 @@ export interface TopicBackupEntry {
   customNote?: string;
   monthlyNotes?: Record<string, string>;
   notes?: string;
+  driveLink?: string;
+  monthlyDriveLinks?: Record<string, string>;
 }
 
 /**
@@ -298,8 +312,16 @@ export function getTopicsBackup(): Record<string, TopicBackupEntry> {
       const monthlyNotes: Record<string, string> = {};
       if (entry?.monthlyNotes && typeof entry.monthlyNotes === 'object') {
         for (const [m, noteText] of Object.entries<any>(entry.monthlyNotes)) {
-          if (typeof noteText === 'string' && noteText.trim()) {
+          if (typeof noteText === 'string' && noteText.trim() && noteText.trim() !== 'undefined') {
             monthlyNotes[m] = noteText.trim();
+          }
+        }
+      }
+      const monthlyDriveLinks: Record<string, string> = {};
+      if (entry?.monthlyDriveLinks && typeof entry.monthlyDriveLinks === 'object') {
+        for (const [m, linkText] of Object.entries<any>(entry.monthlyDriveLinks)) {
+          if (typeof linkText === 'string' && linkText.trim() && linkText.trim() !== 'undefined') {
+            monthlyDriveLinks[m] = linkText.trim();
           }
         }
       }
@@ -307,14 +329,19 @@ export function getTopicsBackup(): Record<string, TopicBackupEntry> {
         subItems,
         monthlySubItems,
         customNote:
-          typeof entry?.customNote === 'string' && entry.customNote.trim()
+          typeof entry?.customNote === 'string' && entry.customNote.trim() && entry.customNote.trim() !== 'undefined'
             ? entry.customNote.trim()
             : undefined,
         monthlyNotes: Object.keys(monthlyNotes).length > 0 ? monthlyNotes : undefined,
         notes:
-          typeof entry?.notes === 'string' && entry.notes.trim()
+          typeof entry?.notes === 'string' && entry.notes.trim() && entry.notes.trim() !== 'undefined'
             ? entry.notes.trim()
             : undefined,
+        driveLink:
+          typeof entry?.driveLink === 'string' && entry.driveLink.trim() && entry.driveLink.trim() !== 'undefined'
+            ? entry.driveLink.trim()
+            : undefined,
+        monthlyDriveLinks: Object.keys(monthlyDriveLinks).length > 0 ? monthlyDriveLinks : undefined,
       };
     }
     return cleaned;
@@ -365,20 +392,37 @@ export function saveTopicsBackup(works: WorkItem[]): void {
       };
       if (w.monthlyNotes && typeof w.monthlyNotes === 'object') {
         for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
-          if (typeof noteText === 'string' && noteText.trim()) {
+          if (typeof noteText === 'string' && noteText.trim() && noteText.trim() !== 'undefined') {
             mergedMonthlyNotes[m] = noteText.trim();
           }
         }
       }
 
+      // Merge monthlyDriveLinks (preserve non-empty drive links)
+      const mergedMonthlyDriveLinks: Record<string, string> = {
+        ...(existing.monthlyDriveLinks || {}),
+      };
+      if (w.monthlyDriveLinks && typeof w.monthlyDriveLinks === 'object') {
+        for (const [m, linkText] of Object.entries(w.monthlyDriveLinks)) {
+          if (typeof linkText === 'string' && linkText.trim() && linkText.trim() !== 'undefined') {
+            mergedMonthlyDriveLinks[m] = linkText.trim();
+          }
+        }
+      }
+
       const resolvedCustomNote =
-        (w.customNote && w.customNote.trim()) ||
-        (existing.customNote && existing.customNote.trim()) ||
+        (w.customNote && w.customNote.trim() && w.customNote.trim() !== 'undefined' && w.customNote.trim()) ||
+        (existing.customNote && existing.customNote.trim() && existing.customNote.trim() !== 'undefined' && existing.customNote.trim()) ||
         undefined;
 
       const resolvedNotes =
-        (w.notes && w.notes.trim()) ||
-        (existing.notes && existing.notes.trim()) ||
+        (w.notes && w.notes.trim() && w.notes.trim() !== 'undefined' && w.notes.trim()) ||
+        (existing.notes && existing.notes.trim() && existing.notes.trim() !== 'undefined' && existing.notes.trim()) ||
+        undefined;
+
+      const resolvedDriveLink =
+        (w.driveLink && w.driveLink.trim() && w.driveLink.trim() !== 'undefined' && w.driveLink.trim()) ||
+        (existing.driveLink && existing.driveLink.trim() && existing.driveLink.trim() !== 'undefined' && existing.driveLink.trim()) ||
         undefined;
 
       if (
@@ -386,7 +430,9 @@ export function saveTopicsBackup(works: WorkItem[]): void {
         Object.keys(mergedMonthly).length > 0 ||
         resolvedCustomNote ||
         Object.keys(mergedMonthlyNotes).length > 0 ||
-        resolvedNotes
+        resolvedNotes ||
+        resolvedDriveLink ||
+        Object.keys(mergedMonthlyDriveLinks).length > 0
       ) {
         backup[key] = {
           subItems: combinedSub,
@@ -395,6 +441,9 @@ export function saveTopicsBackup(works: WorkItem[]): void {
           monthlyNotes:
             Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : undefined,
           notes: resolvedNotes,
+          driveLink: resolvedDriveLink,
+          monthlyDriveLinks:
+            Object.keys(mergedMonthlyDriveLinks).length > 0 ? mergedMonthlyDriveLinks : undefined,
         };
       }
     }
@@ -406,21 +455,23 @@ export function saveTopicsBackup(works: WorkItem[]): void {
 }
 
 /**
- * Explicitly updates or clears a deliverable's note in the local backup when user edits/clears it.
+ * Explicitly updates or clears a deliverable's note or driveLink in the local backup when user edits/clears it.
  */
 export function updateWorkNoteInBackup(
   activity: string,
   targetMonth: string,
   customNote: string | undefined,
-  notes?: string
+  notes?: string,
+  driveLink?: string
 ): void {
   try {
     const backup = getTopicsBackup();
     const key = activity.trim().toLowerCase();
     const entry = backup[key] || {};
     const monthlyNotes = { ...(entry.monthlyNotes || {}) };
+    const monthlyDriveLinks = { ...(entry.monthlyDriveLinks || {}) };
 
-    if (customNote && customNote.trim()) {
+    if (customNote && customNote.trim() && customNote.trim() !== 'undefined') {
       const clean = customNote.trim();
       entry.customNote = clean;
       if (targetMonth && targetMonth !== 'all') {
@@ -439,7 +490,28 @@ export function updateWorkNoteInBackup(
       }
     }
 
+    if (driveLink && driveLink.trim() && driveLink.trim() !== 'undefined') {
+      const cleanLink = driveLink.trim();
+      entry.driveLink = cleanLink;
+      if (targetMonth && targetMonth !== 'all') {
+        monthlyDriveLinks[targetMonth] = cleanLink;
+      }
+    } else if (driveLink !== undefined) {
+      // User intentionally cleared the drive link for this month
+      if (targetMonth && targetMonth !== 'all') {
+        delete monthlyDriveLinks[targetMonth];
+      }
+      if (Object.keys(monthlyDriveLinks).length === 0) {
+        entry.driveLink = undefined;
+      } else {
+        const remainingLinks = Object.values(monthlyDriveLinks).filter(Boolean);
+        entry.driveLink = remainingLinks[remainingLinks.length - 1];
+      }
+    }
+
     entry.monthlyNotes = Object.keys(monthlyNotes).length > 0 ? monthlyNotes : undefined;
+    entry.monthlyDriveLinks =
+      Object.keys(monthlyDriveLinks).length > 0 ? monthlyDriveLinks : undefined;
     if (notes !== undefined) {
       entry.notes = notes.trim() || undefined;
     }
@@ -480,7 +552,7 @@ export function removeSubItemFromBackup(
 }
 
 /**
- * Restores any topics/details AND notes from the backup if a sync, sheet reload, or cloud update omitted them.
+ * Restores any topics/details, notes, AND drive links from the backup if a sync, sheet reload, or cloud update omitted them.
  */
 export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
   try {
@@ -526,20 +598,37 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
       };
       if (w.monthlyNotes && typeof w.monthlyNotes === 'object') {
         for (const [m, noteText] of Object.entries(w.monthlyNotes)) {
-          if (typeof noteText === 'string' && noteText.trim()) {
+          if (typeof noteText === 'string' && noteText.trim() && noteText.trim() !== 'undefined') {
             mergedMonthlyNotes[m] = noteText.trim();
           }
         }
       }
 
+      // Merge monthlyDriveLinks without overwriting non-empty links with empty strings
+      const mergedMonthlyDriveLinks: Record<string, string> = {
+        ...(saved.monthlyDriveLinks || {}),
+      };
+      if (w.monthlyDriveLinks && typeof w.monthlyDriveLinks === 'object') {
+        for (const [m, linkText] of Object.entries(w.monthlyDriveLinks)) {
+          if (typeof linkText === 'string' && linkText.trim() && linkText.trim() !== 'undefined') {
+            mergedMonthlyDriveLinks[m] = linkText.trim();
+          }
+        }
+      }
+
       const resolvedCustomNote =
-        (w.customNote && w.customNote.trim()) ||
-        (saved.customNote && saved.customNote.trim()) ||
+        (w.customNote && w.customNote.trim() && w.customNote.trim() !== 'undefined' && w.customNote.trim()) ||
+        (saved.customNote && saved.customNote.trim() && saved.customNote.trim() !== 'undefined' && saved.customNote.trim()) ||
         undefined;
 
       const resolvedNotes =
-        (w.notes && w.notes.trim()) ||
-        (saved.notes && saved.notes.trim()) ||
+        (w.notes && w.notes.trim() && w.notes.trim() !== 'undefined' && w.notes.trim()) ||
+        (saved.notes && saved.notes.trim() && saved.notes.trim() !== 'undefined' && saved.notes.trim()) ||
+        undefined;
+
+      const resolvedDriveLink =
+        (w.driveLink && w.driveLink.trim() && w.driveLink.trim() !== 'undefined' && w.driveLink.trim()) ||
+        (saved.driveLink && saved.driveLink.trim() && saved.driveLink.trim() !== 'undefined' && saved.driveLink.trim()) ||
         undefined;
 
       return {
@@ -548,6 +637,11 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
         customNote: resolvedCustomNote,
         monthlyNotes:
           Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : w.monthlyNotes,
+        driveLink: resolvedDriveLink,
+        monthlyDriveLinks:
+          Object.keys(mergedMonthlyDriveLinks).length > 0
+            ? mergedMonthlyDriveLinks
+            : w.monthlyDriveLinks,
         subItems: activeSub,
         monthlySubItems: mergedMonthly,
       };

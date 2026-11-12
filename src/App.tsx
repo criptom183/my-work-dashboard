@@ -359,6 +359,38 @@ export default function App() {
       const resolvedNotes =
         cleanVaultNotes || cleanWNotes || cleanMatchNotes || undefined;
 
+      // Merge monthlyDriveLinks (vaultNote takes top precedence, then current item, then local backup)
+      const mergedMonthlyDriveLinks: Record<string, string> = {};
+      for (const linkSource of [
+        match?.monthlyDriveLinks,
+        w.monthlyDriveLinks,
+        vaultNote?.monthlyDriveLinks,
+      ]) {
+        if (linkSource && typeof linkSource === 'object') {
+          for (const [m, linkTxt] of Object.entries(linkSource)) {
+            if (typeof linkTxt === 'string' && linkTxt.trim() && linkTxt.trim() !== 'undefined') {
+              mergedMonthlyDriveLinks[m] = linkTxt.trim();
+            }
+          }
+        }
+      }
+
+      const cleanVaultDriveLink =
+        vaultNote?.driveLink && vaultNote.driveLink.trim() !== 'undefined'
+          ? vaultNote.driveLink.trim()
+          : undefined;
+      const cleanWDriveLink =
+        w.driveLink && w.driveLink.trim() !== 'undefined'
+          ? w.driveLink.trim()
+          : undefined;
+      const cleanMatchDriveLink =
+        match?.driveLink && match.driveLink.trim() !== 'undefined'
+          ? match.driveLink.trim()
+          : undefined;
+
+      const resolvedDriveLink =
+        cleanVaultDriveLink || cleanWDriveLink || cleanMatchDriveLink || undefined;
+
       let activeSub: DeliverableSubItem[] = [];
       if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
         activeSub = deduplicateSubItems(mergedMonthly[w.month]);
@@ -376,6 +408,9 @@ export default function App() {
         customNote: resolvedCustomNote,
         monthlyNotes:
           Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : undefined,
+        driveLink: resolvedDriveLink,
+        monthlyDriveLinks:
+          Object.keys(mergedMonthlyDriveLinks).length > 0 ? mergedMonthlyDriveLinks : undefined,
         subItems: activeSub,
         monthlySubItems: mergedMonthly,
       };
@@ -618,11 +653,16 @@ export default function App() {
                 (it) => it.id === item.id || it.title.trim().toLowerCase() === normItemTitle
               );
               if (idx >= 0) {
-                if (currentList[idx].title !== item.title || currentList[idx].note !== item.note) {
+                if (
+                  currentList[idx].title !== item.title ||
+                  currentList[idx].note !== item.note ||
+                  currentList[idx].driveLink !== item.driveLink
+                ) {
                   currentList[idx] = {
                     id: currentList[idx].id || item.id,
                     title: item.title,
                     note: item.note || currentList[idx].note,
+                    driveLink: item.driveLink || currentList[idx].driveLink,
                     createdAt: currentList[idx].createdAt || item.createdAt,
                   };
                   hasChanges = true;
@@ -632,6 +672,7 @@ export default function App() {
                   id: item.id,
                   title: item.title,
                   note: item.note,
+                  driveLink: item.driveLink,
                   createdAt: item.createdAt,
                 });
                 hasChanges = true;
@@ -687,6 +728,20 @@ export default function App() {
               }
             }
 
+            const mergedMonthlyDriveLinks: Record<string, string> = {
+              ...(w.monthlyDriveLinks || {}),
+            };
+            if (vaultEntry.monthlyDriveLinks && typeof vaultEntry.monthlyDriveLinks === 'object') {
+              for (const [m, linkTxt] of Object.entries(vaultEntry.monthlyDriveLinks)) {
+                if (typeof linkTxt === 'string' && linkTxt.trim() && linkTxt.trim() !== 'undefined') {
+                  if (mergedMonthlyDriveLinks[m] !== linkTxt.trim()) {
+                    mergedMonthlyDriveLinks[m] = linkTxt.trim();
+                    hasChanges = true;
+                  }
+                }
+              }
+            }
+
             const cleanVaultCustomNote =
               vaultEntry.customNote && vaultEntry.customNote.trim() !== 'undefined'
                 ? vaultEntry.customNote.trim()
@@ -715,12 +770,31 @@ export default function App() {
               hasChanges = true;
             }
 
+            const cleanVaultDriveLink =
+              vaultEntry.driveLink && vaultEntry.driveLink.trim() !== 'undefined'
+                ? vaultEntry.driveLink.trim()
+                : undefined;
+            const cleanWDriveLink =
+              w.driveLink && w.driveLink.trim() !== 'undefined'
+                ? w.driveLink.trim()
+                : undefined;
+            const nextDriveLink =
+              cleanVaultDriveLink !== undefined ? cleanVaultDriveLink : cleanWDriveLink;
+            if (nextDriveLink !== w.driveLink) {
+              hasChanges = true;
+            }
+
             return {
               ...w,
               notes: nextNotes,
               customNote: nextCustomNote,
               monthlyNotes:
                 Object.keys(mergedMonthlyNotes).length > 0 ? mergedMonthlyNotes : w.monthlyNotes,
+              driveLink: nextDriveLink,
+              monthlyDriveLinks:
+                Object.keys(mergedMonthlyDriveLinks).length > 0
+                  ? mergedMonthlyDriveLinks
+                  : w.monthlyDriveLinks,
             };
           });
 
@@ -951,12 +1025,41 @@ export default function App() {
             }
           }
 
+          // Scope deliverable Drive links to selectedMonth and keep root driveLink in sync
+          const updatedMonthlyDriveLinks = w.monthlyDriveLinks ? { ...w.monthlyDriveLinks } : {};
+          if (updates.driveLink !== undefined) {
+            const trimmedLink = (updates.driveLink || '').trim();
+            if (trimmedLink && trimmedLink !== 'undefined') {
+              updatedMonthlyDriveLinks[targetMonth] = trimmedLink;
+            } else {
+              delete updatedMonthlyDriveLinks[targetMonth];
+            }
+          }
+
+          let rootDriveLink = w.driveLink;
+          if (updates.driveLink !== undefined) {
+            const trimmedLink = (updates.driveLink || '').trim();
+            if (trimmedLink && trimmedLink !== 'undefined') {
+              rootDriveLink = trimmedLink;
+            } else if (Object.keys(updatedMonthlyDriveLinks).length === 0) {
+              rootDriveLink = undefined;
+            } else {
+              const remainingLinks = Object.values(updatedMonthlyDriveLinks).filter(
+                (v) => v && v.trim() && v.trim() !== 'undefined'
+              );
+              rootDriveLink =
+                remainingLinks.length > 0 ? remainingLinks[remainingLinks.length - 1].trim() : undefined;
+            }
+          }
+
           const nextWork: WorkItem = {
             ...w,
             ...updates,
             customNote: rootCustomNote,
+            driveLink: rootDriveLink,
             monthlyBreakdown: updatedBreakdown,
             monthlyNotes: updatedMonthlyNotes,
+            monthlyDriveLinks: updatedMonthlyDriveLinks,
           };
           updatedTargetWork = nextWork;
           return nextWork;
@@ -967,13 +1070,22 @@ export default function App() {
       if (updatedTargetWork) {
         const tw = updatedTargetWork as WorkItem;
         const actKey = tw.activity.trim().toLowerCase();
-        updateWorkNoteInBackup(tw.activity, targetMonth, updates.customNote, updates.notes);
+        updateWorkNoteInBackup(
+          tw.activity,
+          targetMonth,
+          updates.customNote,
+          updates.notes,
+          updates.driveLink
+        );
         const noteEntry: StoredDeliverableNote = {
           activity: tw.activity,
           customNote:
             tw.customNote && tw.customNote.trim() !== 'undefined' ? tw.customNote.trim() : '',
           monthlyNotes: tw.monthlyNotes || {},
           notes: tw.notes && tw.notes.trim() !== 'undefined' ? tw.notes.trim() : '',
+          driveLink:
+            tw.driveLink && tw.driveLink.trim() !== 'undefined' ? tw.driveLink.trim() : '',
+          monthlyDriveLinks: tw.monthlyDriveLinks || {},
           updatedAt: new Date().toISOString(),
         };
         cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;
@@ -1028,11 +1140,13 @@ export default function App() {
     activity: string,
     count: number,
     category: string,
-    notes?: string
+    notes?: string,
+    driveLink?: string
   ) => {
     if (isViewOnly) return;
     const newId = `work-${Date.now()}`;
     const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
+    const cleanLink = driveLink?.trim() || undefined;
     const newWork: WorkItem = {
       id: newId,
       activity,
@@ -1041,20 +1155,24 @@ export default function App() {
       notes,
       customNote: notes || undefined,
       monthlyNotes: notes ? { [targetMonth]: notes } : undefined,
+      driveLink: cleanLink,
+      monthlyDriveLinks: cleanLink ? { [targetMonth]: cleanLink } : undefined,
       month: targetMonth,
       monthlyBreakdown: {
         [targetMonth]: count,
       },
     };
 
-    if (notes && notes.trim()) {
+    if ((notes && notes.trim()) || cleanLink) {
       const actKey = activity.trim().toLowerCase();
-      updateWorkNoteInBackup(activity, targetMonth, notes.trim(), notes.trim());
+      updateWorkNoteInBackup(activity, targetMonth, notes?.trim(), notes?.trim(), cleanLink);
       const noteEntry: StoredDeliverableNote = {
         activity,
-        customNote: notes.trim(),
-        monthlyNotes: { [targetMonth]: notes.trim() },
-        notes: notes.trim(),
+        customNote: notes?.trim() || '',
+        monthlyNotes: notes?.trim() ? { [targetMonth]: notes.trim() } : {},
+        notes: notes?.trim() || '',
+        driveLink: cleanLink || '',
+        monthlyDriveLinks: cleanLink ? { [targetMonth]: cleanLink } : {},
         updatedAt: new Date().toISOString(),
       };
       cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;
@@ -1092,7 +1210,7 @@ export default function App() {
     setIsSavedInStorage(true);
   };
 
-  const handleAddSubItem = (workItemId: string, title: string, note?: string) => {
+  const handleAddSubItem = (workItemId: string, title: string, note?: string, driveLink?: string) => {
     if (isViewOnly) return;
     const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
     const cleanId = workItemId.replace(/^all-/, '');
@@ -1100,6 +1218,7 @@ export default function App() {
       id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: title.trim(),
       note: note?.trim() || undefined,
+      driveLink: driveLink?.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
 
@@ -1124,6 +1243,9 @@ export default function App() {
           if (existingIdx >= 0) {
             if (newSubItem.note) {
               currentList[existingIdx].note = newSubItem.note;
+            }
+            if (newSubItem.driveLink) {
+              currentList[existingIdx].driveLink = newSubItem.driveLink;
             }
           } else {
             currentList.push(newSubItem);
@@ -1171,6 +1293,7 @@ export default function App() {
         month: targetMonth,
         title: newSubItem.title,
         note: newSubItem.note,
+        driveLink: newSubItem.driveLink,
         createdAt: newSubItem.createdAt,
         updatedAt: new Date().toISOString(),
       },
@@ -1186,6 +1309,7 @@ export default function App() {
           month: targetMonth,
           title: title.trim(),
           note: note?.trim() || '',
+          driveLink: driveLink?.trim() || '',
           createdAt: newSubItem.createdAt,
         });
 
@@ -1195,6 +1319,7 @@ export default function App() {
           month: targetMonth,
           title: title.trim(),
           note: note?.trim() || '',
+          driveLink: driveLink?.trim() || '',
         });
 
         const targetUrl = syncSettingsRef.current.webhookUrl;
@@ -1231,7 +1356,7 @@ export default function App() {
   const handleUpdateSubItem = (
     workItemId: string,
     subItemId: string,
-    updates: { title?: string; note?: string }
+    updates: { title?: string; note?: string; driveLink?: string }
   ) => {
     if (isViewOnly) return;
     const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
@@ -1257,6 +1382,7 @@ export default function App() {
                 ...item,
                 title: updates.title !== undefined ? updates.title : item.title,
                 note: updates.note !== undefined ? updates.note : item.note,
+                driveLink: updates.driveLink !== undefined ? updates.driveLink : item.driveLink,
               };
             }
             return item;
@@ -1303,6 +1429,7 @@ export default function App() {
           month: targetMonth,
           title: updates.title,
           note: updates.note,
+          driveLink: updates.driveLink,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },

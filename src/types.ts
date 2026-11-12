@@ -6,6 +6,7 @@ export interface DeliverableSubItem {
   id: string;
   title: string;
   note?: string;
+  driveLink?: string;
   createdAt?: string;
 }
 
@@ -17,6 +18,8 @@ export interface WorkItem {
   notes?: string;
   customNote?: string;
   monthlyNotes?: Record<string, string>;
+  driveLink?: string;
+  monthlyDriveLinks?: Record<string, string>;
   highlight?: boolean;
   month?: string; // e.g. 'Oct 2026' or 'September'
   monthlyBreakdown?: Record<string, number>; // e.g. { 'Aug 2026': 15, 'Sep 2026': 18, 'Oct 2026': 21 }

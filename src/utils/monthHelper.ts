@@ -378,10 +378,20 @@ export function getWorksForSelectedMonth(
         let resolvedAllNote = w.customNote;
         if (!resolvedAllNote && w.monthlyNotes) {
           const nonEmptyNotes = Object.values(w.monthlyNotes).filter(
-            (n) => typeof n === 'string' && n.trim().length > 0
+            (n) => typeof n === 'string' && n.trim().length > 0 && n.trim() !== 'undefined'
           );
           if (nonEmptyNotes.length > 0) {
             resolvedAllNote = nonEmptyNotes[nonEmptyNotes.length - 1];
+          }
+        }
+
+        let resolvedAllDriveLink = w.driveLink;
+        if (!resolvedAllDriveLink && w.monthlyDriveLinks) {
+          const nonEmptyLinks = Object.values(w.monthlyDriveLinks).filter(
+            (l) => typeof l === 'string' && l.trim().length > 0 && l.trim() !== 'undefined'
+          );
+          if (nonEmptyLinks.length > 0) {
+            resolvedAllDriveLink = nonEmptyLinks[nonEmptyLinks.length - 1];
           }
         }
 
@@ -391,6 +401,7 @@ export function getWorksForSelectedMonth(
           count: total,
           month: 'All Months',
           customNote: resolvedAllNote,
+          driveLink: resolvedAllDriveLink,
           monthlyBreakdown: breakdown,
           subItems: deduplicateSubItems(allSub),
         });
@@ -429,6 +440,21 @@ export function getWorksForSelectedMonth(
             );
             if (nonEmpty.length > 0) {
               existing.customNote = nonEmpty[nonEmpty.length - 1].trim();
+            }
+          }
+        }
+
+        if (!existing.driveLink && w.driveLink && w.driveLink !== 'undefined') {
+          existing.driveLink = w.driveLink.trim();
+        }
+        if (w.monthlyDriveLinks) {
+          existing.monthlyDriveLinks = { ...(existing.monthlyDriveLinks || {}), ...w.monthlyDriveLinks };
+          if (!existing.driveLink) {
+            const nonEmptyLinks = Object.values(existing.monthlyDriveLinks).filter(
+              (l) => typeof l === 'string' && l.trim().length > 0 && l.trim() !== 'undefined'
+            );
+            if (nonEmptyLinks.length > 0) {
+              existing.driveLink = nonEmptyLinks[nonEmptyLinks.length - 1].trim();
             }
           }
         }
@@ -499,6 +525,25 @@ export function getWorksForSelectedMonth(
         }
       }
 
+      // Month-specific Drive link resolution: check monthlyDriveLinks first, and fall back to root driveLink
+      let resolvedDriveLink: string | undefined = undefined;
+      let foundMonthlyDriveKey = false;
+      if (w.monthlyDriveLinks && typeof w.monthlyDriveLinks === 'object') {
+        for (const [m, linkText] of Object.entries(w.monthlyDriveLinks)) {
+          if (isSameMonth(m, selectedMonth)) {
+            foundMonthlyDriveKey = true;
+            resolvedDriveLink =
+              linkText && typeof linkText === 'string' && linkText.trim() && linkText.trim() !== 'undefined'
+                ? linkText.trim()
+                : undefined;
+            break;
+          }
+        }
+      }
+      if (!foundMonthlyDriveKey && w.driveLink && w.driveLink.trim() && w.driveLink.trim() !== 'undefined') {
+        resolvedDriveLink = w.driveLink.trim();
+      }
+
       // Month-specific sub-items / topics resolution
       let resolvedSubItems: DeliverableSubItem[] = [];
       if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
@@ -520,6 +565,7 @@ export function getWorksForSelectedMonth(
         count: monthCount,
         month: selectedMonth,
         customNote: resolvedCustomNote,
+        driveLink: resolvedDriveLink,
         subItems: deduplicateSubItems(resolvedSubItems),
       });
     }

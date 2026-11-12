@@ -190,6 +190,20 @@ export async function saveSharedDashboardData(dashboardData: DashboardData): Pro
           item.monthlyNotes = cleanMNotes;
         }
       }
+      if (w.driveLink && w.driveLink !== 'undefined' && w.driveLink.trim()) {
+        item.driveLink = w.driveLink.trim();
+      }
+      if (w.monthlyDriveLinks && typeof w.monthlyDriveLinks === 'object') {
+        const cleanMLinks: Record<string, string> = {};
+        for (const [m, link] of Object.entries(w.monthlyDriveLinks)) {
+          if (link && link !== 'undefined' && typeof link === 'string' && link.trim()) {
+            cleanMLinks[m] = link.trim();
+          }
+        }
+        if (Object.keys(cleanMLinks).length > 0) {
+          item.monthlyDriveLinks = cleanMLinks;
+        }
+      }
       if (w.highlight !== undefined) item.highlight = w.highlight;
       if (w.month !== undefined) item.month = w.month;
       if (w.monthlyBreakdown !== undefined) item.monthlyBreakdown = w.monthlyBreakdown;
@@ -269,6 +283,7 @@ export interface StoredDeliverableDetail {
   month: string;
   title: string;
   note?: string;
+  driveLink?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -433,6 +448,8 @@ export interface StoredDeliverableNote {
   customNote?: string;
   monthlyNotes?: Record<string, string>;
   notes?: string;
+  driveLink?: string;
+  monthlyDriveLinks?: Record<string, string>;
   updatedAt: string;
 }
 

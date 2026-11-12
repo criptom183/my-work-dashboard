@@ -1,6 +1,0 @@
-{
-  "summary":  "Implementation plan for collapsible sub-categories (topics and notes) under Works Completed deliverables, with real-time Firestore synchronization and dedicated Google Sheet tab export.",
-  "updatedAt":  "2026-11-10T04:52:42.188589005Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}
