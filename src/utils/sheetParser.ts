@@ -831,14 +831,16 @@ export function parseWorksFromRows(rows: any[][], defaultMonth?: string): WorkIt
     // Extract notes / details
     let notes = notesCol !== -1 && row[notesCol] ? clean(row[notesCol]) : undefined;
 
-    // Extract Drive Link if present in driveLinkCol or any cell containing drive.google.com
+    // Extract Link if present in driveLinkCol or any cell containing a standalone URL
     let driveLink = driveLinkCol !== -1 && row[driveLinkCol] ? clean(row[driveLinkCol]) : undefined;
     if (!driveLink) {
       for (let c = 0; c < row.length; c++) {
         const cellVal = clean(row[c]);
         if (
           cellVal &&
-          (cellVal.includes('drive.google.com') || cellVal.includes('docs.google.com/folder'))
+          (/^https?:\/\/\S+$/i.test(cellVal) ||
+            cellVal.includes('drive.google.com') ||
+            cellVal.includes('docs.google.com/folder'))
         ) {
           driveLink = cellVal;
           break;

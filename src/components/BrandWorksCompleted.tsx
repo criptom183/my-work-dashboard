@@ -18,7 +18,6 @@ import {
   FileSpreadsheet,
   CornerDownRight,
   UploadCloud,
-  FolderOpen,
   ExternalLink,
   Link2,
 } from 'lucide-react';
@@ -444,7 +443,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             prev ? { ...prev, driveLink: e.target.value } : null
                           )
                         }
-                        placeholder="Drive file/folder link (optional)..."
+                        placeholder="Link URL (optional)..."
                         className="sm:w-52 px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
                       />
                     </div>
@@ -487,12 +486,12 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             href={normalizeDriveHref(sub.driveLink)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 text-[10px] font-bold transition-colors"
-                            title="Open Drive file or folder"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs text-xs font-bold transition-all active:scale-95"
+                            title="Open attached link"
                           >
-                            <FolderOpen className="w-2.5 h-2.5 text-emerald-600" />
-                            <span>Drive</span>
-                            <ExternalLink className="w-2 h-2 opacity-75" />
+                            <Link2 className="w-3.5 h-3.5 text-emerald-100 shrink-0" />
+                            <span>Open Link</span>
+                            <ExternalLink className="w-3 h-3 opacity-90 shrink-0" />
                           </a>
                         )}
                       </div>
@@ -519,7 +518,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             })
                           }
                           className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
-                          title="Edit detail or Drive link"
+                          title="Edit detail or link"
                         >
                           <Edit2 className="w-3 h-3" />
                         </button>
@@ -572,7 +571,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                 type="url"
                 value={topicDrafts[item.id]?.driveLink || ''}
                 onChange={(e) => updateDraftDriveLink(item.id, e.target.value)}
-                placeholder="Drive link (optional)..."
+                placeholder="Link URL (optional)..."
                 className="sm:w-44 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
               />
               <button
@@ -854,28 +853,28 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             )}
                           </button>
 
-                          {/* Google Drive Folder / File Link Badge */}
+                          {/* External Link Badge: Large, high-visibility primary action */}
                           {item.driveLink ? (
-                            <div className="inline-flex items-center rounded-lg bg-emerald-50 border border-emerald-200/90 shadow-2xs overflow-hidden shrink-0">
+                            <div className="inline-flex items-center rounded-lg bg-emerald-600 shadow-sm ring-1 ring-emerald-700/20 overflow-hidden shrink-0">
                               <a
                                 href={normalizeDriveHref(item.driveLink)}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:text-emerald-950 hover:bg-emerald-100/80 transition-colors"
-                                title="Open files in Google Drive"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 transition-all active:scale-95"
+                                title="Open attached link"
                               >
-                                <FolderOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span>Drive Files</span>
-                                <ExternalLink className="w-3 h-3 opacity-75 shrink-0" />
+                                <Link2 className="w-4 h-4 text-emerald-100 shrink-0" />
+                                <span>Open Link</span>
+                                <ExternalLink className="w-3.5 h-3.5 opacity-90 shrink-0" />
                               </a>
                               {!isViewOnly && (
                                 <button
                                   type="button"
                                   onClick={() => openInlineDrive(item)}
-                                  className="px-1.5 py-1 border-l border-emerald-200/80 text-emerald-600 hover:text-emerald-900 hover:bg-emerald-100 transition-colors cursor-pointer"
-                                  title="Edit Drive link"
+                                  className="px-2 py-1.5 border-l border-emerald-500/60 text-emerald-100 hover:text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                                  title="Edit link"
                                 >
-                                  <Edit2 className="w-2.5 h-2.5" />
+                                  <Edit2 className="w-3 h-3" />
                                 </button>
                               )}
                             </div>
@@ -884,11 +883,11 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => openInlineDrive(item)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100/80 border border-emerald-200/60 transition-colors cursor-pointer shrink-0"
-                                title="Attach Google Drive link for this deliverable"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 shadow-2xs transition-all cursor-pointer shrink-0 active:scale-95"
+                                title="Attach link for this deliverable"
                               >
-                                <Link2 className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>+ Drive Link</span>
+                                <Link2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>+ Add Link</span>
                               </button>
                             )
                           )}
@@ -920,15 +919,15 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                         {item.notes || `${item.category} deliverables`}
                       </p>
 
-                      {/* Inline Quick Drive Link Input */}
+                      {/* Inline Quick Link Input */}
                       {!isViewOnly && isEditingThisDrive && (
                         <div className="mb-2 p-2 rounded-lg bg-emerald-50/60 border border-emerald-200 flex items-center gap-1.5">
-                          <FolderOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <Link2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                           <input
                             type="url"
                             value={inlineDriveText}
                             onChange={(e) => setInlineDriveText(e.target.value)}
-                            placeholder={`Paste Google Drive folder or file link for ${item.activity}...`}
+                            placeholder={`Paste link URL for ${item.activity}...`}
                             className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-emerald-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-600 text-slate-800"
                             autoFocus
                             onKeyDown={(e) => {
@@ -949,7 +948,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               type="button"
                               onClick={() => clearItemDrive(item)}
                               className="p-1 px-2 rounded text-rose-600 hover:bg-rose-50 text-[11px] font-semibold transition-colors cursor-pointer shrink-0"
-                              title="Remove Drive link"
+                              title="Remove link"
                             >
                               Clear
                             </button>
@@ -1061,7 +1060,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             ? 'cursor-pointer hover:text-[#E11D74]'
                             : 'cursor-default'
                         }`}
-                        title={!isViewOnly ? 'Click to edit count, notes, or Drive link' : undefined}
+                        title={!isViewOnly ? 'Click to edit count, notes, or link' : undefined}
                       >
                         {item.count}
                       </span>
@@ -1112,26 +1111,26 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-slate-900">{w.activity}</span>
                         {w.driveLink ? (
-                          <div className="inline-flex items-center rounded bg-emerald-50 border border-emerald-200/80 overflow-hidden">
+                          <div className="inline-flex items-center rounded-lg bg-emerald-600 shadow-xs overflow-hidden">
                             <a
                               href={normalizeDriveHref(w.driveLink)}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 transition-colors"
-                              title="Open Google Drive"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-extrabold text-white hover:bg-emerald-700 transition-colors"
+                              title="Open attached link"
                             >
-                              <FolderOpen className="w-2.5 h-2.5 text-emerald-600" />
-                              <span>Drive</span>
-                              <ExternalLink className="w-2 h-2 opacity-75" />
+                              <Link2 className="w-3.5 h-3.5 text-emerald-100" />
+                              <span>Open Link</span>
+                              <ExternalLink className="w-3 h-3 opacity-90" />
                             </a>
                             {!isViewOnly && (
                               <button
                                 type="button"
                                 onClick={() => openInlineDrive(w)}
-                                className="px-1 py-0.5 border-l border-emerald-200 text-emerald-600 hover:bg-emerald-100 cursor-pointer"
-                                title="Edit Drive link"
+                                className="px-1.5 py-1 border-l border-emerald-500 text-emerald-100 hover:text-white hover:bg-emerald-700 cursor-pointer"
+                                title="Edit link"
                               >
-                                <Edit2 className="w-2 h-2" />
+                                <Edit2 className="w-3 h-3" />
                               </button>
                             )}
                           </div>
@@ -1140,11 +1139,11 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             <button
                               type="button"
                               onClick={() => openInlineDrive(w)}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 transition-colors cursor-pointer"
-                              title="Add Drive link"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors cursor-pointer"
+                              title="Add link"
                             >
-                              <Link2 className="w-2.5 h-2.5" />
-                              <span>+ Drive</span>
+                              <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>+ Add Link</span>
                             </button>
                           )
                         )}
@@ -1166,7 +1165,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             type="url"
                             value={inlineDriveText}
                             onChange={(e) => setInlineDriveText(e.target.value)}
-                            placeholder="Paste Google Drive URL..."
+                            placeholder="Paste link URL..."
                             className="flex-1 px-2 py-1 text-xs bg-white border border-emerald-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-600"
                             autoFocus
                             onKeyDown={(e) => {
@@ -1275,7 +1274,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               <tr className="border-b border-slate-200/80 text-slate-400 font-semibold uppercase text-[11px]">
                 <th className="py-3 px-3">Activity</th>
                 <th className="py-3 px-3">Category</th>
-                <th className="py-3 px-3">Drive Files</th>
+                <th className="py-3 px-3">Link</th>
                 <th className="py-3 px-3">Notes / Remarks</th>
                 <th className="py-3 px-3 text-right tabular-nums">Count</th>
                 {!isViewOnly && <th className="py-3 px-3 text-right">Action</th>}
@@ -1333,7 +1332,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               type="url"
                               value={inlineDriveText}
                               onChange={(e) => setInlineDriveText(e.target.value)}
-                              placeholder="Paste Drive URL..."
+                              placeholder="Paste link URL..."
                               className="w-40 px-2 py-1 text-xs bg-white border border-emerald-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-600"
                               autoFocus
                               onKeyDown={(e) => {
@@ -1357,26 +1356,26 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             </button>
                           </div>
                         ) : w.driveLink ? (
-                          <div className="inline-flex items-center rounded-lg bg-emerald-50 border border-emerald-200/80 overflow-hidden">
+                          <div className="inline-flex items-center rounded-lg bg-emerald-600 shadow-sm overflow-hidden">
                             <a
                               href={normalizeDriveHref(w.driveLink)}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
-                              title="Open files in Google Drive"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 transition-colors"
+                              title="Open attached link"
                             >
-                              <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Open Drive</span>
-                              <ExternalLink className="w-2.5 h-2.5 opacity-75" />
+                              <Link2 className="w-4 h-4 text-emerald-100" />
+                              <span>Open Link</span>
+                              <ExternalLink className="w-3.5 h-3.5 opacity-90" />
                             </a>
                             {!isViewOnly && (
                               <button
                                 type="button"
                                 onClick={() => openInlineDrive(w)}
-                                className="px-1.5 py-1 border-l border-emerald-200 text-emerald-600 hover:bg-emerald-100 cursor-pointer"
-                                title="Edit Drive link"
+                                className="px-2 py-1.5 border-l border-emerald-500 text-emerald-100 hover:text-white hover:bg-emerald-700 cursor-pointer"
+                                title="Edit link"
                               >
-                                <Edit2 className="w-2.5 h-2.5" />
+                                <Edit2 className="w-3 h-3" />
                               </button>
                             )}
                           </div>
@@ -1384,10 +1383,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                           <button
                             type="button"
                             onClick={() => openInlineDrive(w)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200/60 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 shadow-2xs transition-colors cursor-pointer"
                           >
-                            <Link2 className="w-3 h-3 text-emerald-600" />
-                            <span>+ Drive Link</span>
+                            <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>+ Add Link</span>
                           </button>
                         ) : (
                           <span className="text-slate-300">—</span>
@@ -1460,7 +1459,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               setEditDriveLink(w.driveLink || '');
                             }}
                             className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                            title="Edit count, notes & Drive link"
+                            title="Edit count, notes & link"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -1577,11 +1576,11 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Google Drive Folder / File Link (Optional)
+                  Link / URL (Optional)
                 </label>
                 <input
                   type="url"
-                  placeholder="https://drive.google.com/drive/folders/..."
+                  placeholder="https://..."
                   value={newDriveLink}
                   onChange={(e) => setNewDriveLink(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
@@ -1621,7 +1620,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
         </div>
       )}
 
-      {/* Edit Activity Count, Drive Link & Note Modal */}
+      {/* Edit Activity Count, Link & Note Modal */}
       {editingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 shadow-xl overflow-hidden p-6 animate-in zoom-in-95 duration-150">
@@ -1641,11 +1640,11 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Google Drive Folder / File Link (Optional)
+                  Link / URL (Optional)
                 </label>
                 <input
                   type="url"
-                  placeholder="https://drive.google.com/..."
+                  placeholder="https://..."
                   value={editDriveLink}
                   onChange={(e) => setEditDriveLink(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
