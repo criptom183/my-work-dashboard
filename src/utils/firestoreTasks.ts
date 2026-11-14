@@ -296,11 +296,12 @@ export async function saveDeliverableDetailsToFirestore(
   details: Record<string, StoredDeliverableDetail>
 ): Promise<void> {
   try {
+    const sanitizedDetails = JSON.parse(JSON.stringify(details || {}));
     const ref = doc(db, CONFIG_COLLECTION, 'deliverable_details');
     await setDoc(
       ref,
       {
-        details,
+        details: sanitizedDetails,
         updatedAt: new Date().toISOString(),
       },
       { merge: true }

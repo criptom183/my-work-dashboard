@@ -34,8 +34,11 @@ import {
   removeSubItemFromBackup,
   restoreTopicsFromBackup,
   buildTopicSyncKey,
+  buildTopicContentSignature,
   getSyncedTopicKeys,
+  getSyncedTopicSignatures,
   markTopicsAsSynced,
+  markTopicSignaturesAsSynced,
   deduplicateSubItems,
 } from './utils/storage';
 import {
@@ -1090,6 +1093,33 @@ export default function App() {
         };
         cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;
         saveDeliverableNotesToFirestore({ [actKey]: noteEntry }).catch(console.warn);
+
+        // If a deliverable-level link was added or updated, also back it up to Google Sheets
+        if (updates.driveLink !== undefined && syncSettingsRef.current?.webhookUrl) {
+          const linkToBackup = updates.driveLink.trim();
+          const noteForLink =
+            (updates.customNote !== undefined ? updates.customNote : tw.monthlyNotes?.[targetMonth] || tw.customNote || '').trim();
+          if (linkToBackup) {
+            const webhookUrl = syncSettingsRef.current.webhookUrl.trim();
+            const payload = JSON.stringify({
+              action: 'syncDeliverableLinks',
+              deliverableLinks: [
+                {
+                  month: targetMonth,
+                  deliverable: tw.activity,
+                  note: noteForLink,
+                  link: linkToBackup,
+                },
+              ],
+            });
+            fetch(webhookUrl, {
+              method: 'POST',
+              mode: 'no-cors',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: payload,
+            }).catch(() => {});
+          }
+        }
       }
 
       saveTopicsBackup(updatedWorks);
@@ -1302,24 +1332,29 @@ export default function App() {
     // If user configured a Google Apps Script Web App URL, post directly to their Google Sheet in background
     if (syncSettingsRef.current?.webhookUrl) {
       try {
+        const cleanLink = driveLink?.trim() || '';
+        const cleanNote = note?.trim() || '';
+        const cleanTitle = title.trim();
 
         const webhookPayload = JSON.stringify({
-          action: 'addTopic',
+          action: 'upsertTopic',
           deliverable: deliverableName,
           month: targetMonth,
-          title: title.trim(),
-          note: note?.trim() || '',
-          driveLink: driveLink?.trim() || '',
+          title: cleanTitle,
+          note: cleanNote,
+          link: cleanLink,
+          driveLink: cleanLink,
           createdAt: newSubItem.createdAt,
         });
 
         const queryParams = new URLSearchParams({
-          action: 'addTopic',
+          action: 'upsertTopic',
           deliverable: deliverableName,
           month: targetMonth,
-          title: title.trim(),
-          note: note?.trim() || '',
-          driveLink: driveLink?.trim() || '',
+          title: cleanTitle,
+          note: cleanNote,
+          link: cleanLink,
+          driveLink: cleanLink,
         });
 
         const targetUrl = syncSettingsRef.current.webhookUrl;
@@ -1340,8 +1375,9 @@ export default function App() {
           } catch {}
         });
 
-        const syncKey = buildTopicSyncKey(deliverableName, targetMonth, title);
+        const syncKey = buildTopicSyncKey(deliverableName, targetMonth, cleanTitle);
         markTopicsAsSynced([syncKey]);
+        markTopicSignaturesAsSynced([{ key: syncKey, note: cleanNote, link: cleanLink }]);
         saveSharedSyncedTopics([syncKey]).catch(console.warn);
         showToast(`Detail "${title}" added & autosaved to Google Sheet!`);
         return;
@@ -1361,6 +1397,22 @@ export default function App() {
     if (isViewOnly) return;
     const targetMonth = selectedMonth === 'all' ? (data.availableMonths?.[0] || 'Nov 2026') : selectedMonth;
     const cleanId = workItemId.replace(/^all-/, '');
+
+    // Capture previous item values before state mutation so renames/edits sync accurately to Google Sheet
+    const currentWork = (dataRef.current.worksCompleted || []).find(
+      (w) =>
+        w.id === cleanId ||
+        w.id === workItemId ||
+        w.id.replace(/^all-/, '') === cleanId ||
+        w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
+    );
+    const deliverableName = currentWork?.activity || workItemId;
+    const existingList = currentWork?.monthlySubItems?.[targetMonth] || currentWork?.subItems || [];
+    const prevSubItem = existingList.find((it) => it.id === subItemId);
+    const oldTitle = prevSubItem?.title || '';
+    const mergedTitle = (updates.title !== undefined ? updates.title : oldTitle).trim();
+    const mergedNote = (updates.note !== undefined ? updates.note : prevSubItem?.note || '').trim();
+    const mergedLink = (updates.driveLink !== undefined ? updates.driveLink : prevSubItem?.driveLink || '').trim();
 
     setData((prev) => {
       const updatedWorks = prev.worksCompleted.map((w) => {
@@ -1412,28 +1464,69 @@ export default function App() {
 
     setIsSavedInStorage(true);
 
-    const deliverableName =
-      dataRef.current.worksCompleted.find(
-        (w) =>
-          w.id === cleanId ||
-          w.id === workItemId ||
-          w.id.replace(/^all-/, '') === cleanId ||
-          w.activity.trim().toLowerCase() === workItemId.trim().toLowerCase()
-      )?.activity || workItemId;
-
-    if (updates.title) {
+    if (mergedTitle) {
       saveDeliverableDetailsToFirestore({
         [subItemId]: {
           id: subItemId,
           activity: deliverableName,
           month: targetMonth,
-          title: updates.title,
-          note: updates.note,
-          driveLink: updates.driveLink,
-          createdAt: new Date().toISOString(),
+          title: mergedTitle,
+          note: mergedNote || undefined,
+          driveLink: mergedLink || undefined,
+          createdAt: prevSubItem?.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
       }).catch(console.warn);
+
+      // Push update in place to Google Sheet so edited notes/links/titles stay synchronized without duplicating rows
+      if (syncSettingsRef.current?.webhookUrl) {
+        try {
+          const webhookPayload = JSON.stringify({
+            action: 'upsertTopic',
+            deliverable: deliverableName,
+            month: targetMonth,
+            oldTitle: oldTitle && oldTitle !== mergedTitle ? oldTitle : undefined,
+            title: mergedTitle,
+            note: mergedNote,
+            link: mergedLink,
+            driveLink: mergedLink,
+          });
+          const queryParams = new URLSearchParams({
+            action: 'upsertTopic',
+            deliverable: deliverableName,
+            month: targetMonth,
+            title: mergedTitle,
+            note: mergedNote,
+            link: mergedLink,
+            driveLink: mergedLink,
+          });
+          if (oldTitle && oldTitle !== mergedTitle) {
+            queryParams.set('oldTitle', oldTitle);
+          }
+          const targetUrl = syncSettingsRef.current.webhookUrl.trim();
+          const separator = targetUrl.includes('?') ? '&' : '?';
+          const urlWithParams = `${targetUrl}${separator}${queryParams.toString()}`;
+
+          fetch(urlWithParams, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: webhookPayload,
+          }).catch(() => {
+            try {
+              const img = new Image();
+              img.src = urlWithParams;
+            } catch {}
+          });
+
+          const syncKey = buildTopicSyncKey(deliverableName, targetMonth, mergedTitle);
+          markTopicsAsSynced([syncKey]);
+          markTopicSignaturesAsSynced([{ key: syncKey, note: mergedNote, link: mergedLink }]);
+          saveSharedSyncedTopics([syncKey]).catch(console.warn);
+        } catch (err) {
+          console.warn('Google Sheet edit sync warning:', err);
+        }
+      }
     }
 
     showToast('Detail updated & autosaved!');
@@ -1512,56 +1605,118 @@ export default function App() {
       return;
     }
 
-    // Collect all topics from worksCompleted and monthlySubItems
-    const items: Array<{ deliverable: string; month: string; title: string; note: string }> = [];
+    // Collect & strictly deduplicate all topics (with notes AND links) across worksCompleted
+    const topicMap = new Map<
+      string,
+      { deliverable: string; month: string; title: string; note: string; link: string }
+    >();
+    const deliverableLinksPayload: Array<{
+      month: string;
+      deliverable: string;
+      note: string;
+      link: string;
+    }> = [];
+    const seenDeliverableLinks = new Set<string>();
     const works = dataRef.current.worksCompleted || [];
 
+    const registerTopic = (
+      deliverable: string,
+      month: string,
+      title: string,
+      note?: string,
+      link?: string
+    ) => {
+      const cleanTitle = (title || '').trim();
+      if (!cleanTitle) return;
+      const key = buildTopicSyncKey(deliverable, month, cleanTitle);
+      const prev = topicMap.get(key);
+      const cleanNote = (note || '').trim();
+      const cleanLink = (link || '').trim();
+      if (!prev) {
+        topicMap.set(key, {
+          deliverable,
+          month,
+          title: cleanTitle,
+          note: cleanNote,
+          link: cleanLink,
+        });
+      } else {
+        topicMap.set(key, {
+          ...prev,
+          note: cleanNote || prev.note,
+          link: cleanLink || prev.link,
+        });
+      }
+    };
+
     for (const w of works) {
-      if (w.subItems && w.subItems.length > 0) {
-        for (const s of w.subItems) {
-          items.push({
+      const fallbackMonth = w.month || selectedMonth || 'Nov 2026';
+      if (w.driveLink && w.driveLink.trim()) {
+        const dlKey = `${fallbackMonth.trim().toLowerCase()}|${w.activity.trim().toLowerCase()}`;
+        if (!seenDeliverableLinks.has(dlKey)) {
+          seenDeliverableLinks.add(dlKey);
+          deliverableLinksPayload.push({
+            month: fallbackMonth,
             deliverable: w.activity,
-            month: w.month || selectedMonth || 'Nov 2026',
-            title: s.title,
-            note: s.note || '',
+            note: (w.customNote || '').trim(),
+            link: w.driveLink.trim(),
           });
         }
       }
-      if (w.monthlySubItems) {
-        for (const [mName, mList] of Object.entries(w.monthlySubItems)) {
-          for (const s of mList || []) {
-            const already = items.some(
-              (it) => it.deliverable === w.activity && it.month === mName && it.title === s.title
-            );
-            if (!already) {
-              items.push({
-                deliverable: w.activity,
+      if (w.monthlyDriveLinks) {
+        for (const [mName, linkUrl] of Object.entries(w.monthlyDriveLinks)) {
+          if (linkUrl && linkUrl.trim()) {
+            const dlKey = `${mName.trim().toLowerCase()}|${w.activity.trim().toLowerCase()}`;
+            if (!seenDeliverableLinks.has(dlKey)) {
+              seenDeliverableLinks.add(dlKey);
+              deliverableLinksPayload.push({
                 month: mName,
-                title: s.title,
-                note: s.note || '',
+                deliverable: w.activity,
+                note: (w.monthlyNotes?.[mName] || w.customNote || '').trim(),
+                link: linkUrl.trim(),
               });
             }
           }
         }
       }
+
+      if (w.subItems && w.subItems.length > 0) {
+        for (const s of w.subItems) {
+          registerTopic(w.activity, fallbackMonth, s.title, s.note, s.driveLink);
+        }
+      }
+      if (w.monthlySubItems) {
+        for (const [mName, mList] of Object.entries(w.monthlySubItems)) {
+          for (const s of mList || []) {
+            registerTopic(w.activity, mName, s.title, s.note, s.driveLink);
+          }
+        }
+      }
     }
 
-    if (items.length === 0) {
-      showToast('No extra details found in the dashboard yet. Expand any deliverable to add details first.', 'info');
+    const items = Array.from(topicMap.values());
+
+    if (items.length === 0 && deliverableLinksPayload.length === 0) {
+      showToast('No extra details or links found in the dashboard yet.', 'info');
       return;
     }
 
-    // Filter out topics/details that have already been synced to Google Sheet unless forceAll is true
+    // Sync any topic that is either new OR has an edited note or link compared to last sync
     const syncedKeys = forceAll ? new Set<string>() : getSyncedTopicKeys();
+    const syncedSigs = forceAll ? {} : getSyncedTopicSignatures();
     const itemsToSync = forceAll
       ? items
-      : items.filter(
-          (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
-        );
+      : items.filter((it) => {
+          const key = buildTopicSyncKey(it.deliverable, it.month, it.title);
+          if (!syncedKeys.has(key)) return true;
+          const prevSig = syncedSigs[key];
+          const currSig = buildTopicContentSignature(it.note, it.link);
+          return prevSig !== currSig;
+        });
 
-    if (itemsToSync.length === 0) {
+    if (itemsToSync.length === 0 && deliverableLinksPayload.length === 0) {
       showToast(
-        'All details are already marked as synced! Click "Force All" next to the button to re-push all details to your sheet.',
+        'All details & links are already synced in your Google Sheet! Click "Force All" to re-check every row.',
         'info'
       );
       return;
@@ -1570,23 +1725,39 @@ export default function App() {
     setIsSyncingAllTopics(true);
     showToast(
       forceAll
-        ? `Force re-syncing all ${itemsToSync.length} details to your Google Sheet...`
-        : `Syncing ${itemsToSync.length} new detail(s) to your Google Sheet... (${items.length - itemsToSync.length} already synced)`,
+        ? `Force syncing all ${itemsToSync.length} details & links to Google Sheet...`
+        : `Backing up ${itemsToSync.length} new/updated detail(s) & links to Google Sheet...`,
       'info'
     );
 
     try {
       const newlySyncedKeys: string[] = [];
+      const newlySyncedSigs: Array<{ key: string; note: string; link: string }> = [];
 
-      // Send each topic row-by-row with verified addTopic action
+      // Sync deliverable-level links first if any exist
+      if (deliverableLinksPayload.length > 0) {
+        await fetch(webhookUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'syncDeliverableLinks',
+            deliverableLinks: deliverableLinksPayload,
+          }),
+        }).catch(() => {});
+      }
+
+      // Send each topic row-by-row with upsertTopic (adds new, updates changed notes/links in place, skips identical)
       for (let i = 0; i < itemsToSync.length; i++) {
         const item = itemsToSync[i];
         const queryParams = new URLSearchParams({
-          action: 'addTopic',
+          action: 'upsertTopic',
           deliverable: item.deliverable,
           month: item.month,
           title: item.title,
           note: item.note,
+          link: item.link,
+          driveLink: item.link,
         });
         const separator = webhookUrl.includes('?') ? '&' : '?';
         const targetWithParams = `${webhookUrl}${separator}${queryParams.toString()}`;
@@ -1596,11 +1767,13 @@ export default function App() {
           mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
-            action: 'addTopic',
+            action: 'upsertTopic',
             deliverable: item.deliverable,
             month: item.month,
             title: item.title,
             note: item.note,
+            link: item.link,
+            driveLink: item.link,
           }),
         }).catch(() => {
           try {
@@ -1609,7 +1782,9 @@ export default function App() {
           } catch {}
         });
 
-        newlySyncedKeys.push(buildTopicSyncKey(item.deliverable, item.month, item.title));
+        const syncKey = buildTopicSyncKey(item.deliverable, item.month, item.title);
+        newlySyncedKeys.push(syncKey);
+        newlySyncedSigs.push({ key: syncKey, note: item.note, link: item.link });
 
         if (i < itemsToSync.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 150));
@@ -1617,15 +1792,16 @@ export default function App() {
       }
 
       markTopicsAsSynced(newlySyncedKeys);
+      markTopicSignaturesAsSynced(newlySyncedSigs);
       saveSharedSyncedTopics(newlySyncedKeys).catch(console.warn);
       showToast(
         forceAll
-          ? `Successfully re-pushed all ${itemsToSync.length} details to your Google Sheet "Topic Breakdown" tab!`
-          : `Successfully added ${itemsToSync.length} new detail(s) into your Google Sheet!`
+          ? `Backed up all ${itemsToSync.length} details & saved links into Google Sheet!`
+          : `Synced ${itemsToSync.length} new/updated detail(s) & links into Google Sheet!`
       );
     } catch (err) {
       console.error('Error syncing all details to Google Sheet:', err);
-      showToast('Sent details to Google Sheet. Please check your sheet.', 'info');
+      showToast('Sent details & links to Google Sheet. Please check your sheet.', 'info');
     } finally {
       setIsSyncingAllTopics(false);
     }

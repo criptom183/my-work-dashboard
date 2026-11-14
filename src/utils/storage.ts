@@ -653,6 +653,7 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
 }
 
 const SYNCED_TOPICS_KEY = 'vzone_marketing_dashboard_synced_topics_v1';
+const SYNCED_TOPIC_SIGNATURES_KEY = 'vzone_marketing_dashboard_synced_topic_sigs_v1';
 
 /**
  * Normalizes a topic key for deduplication check:
@@ -660,6 +661,14 @@ const SYNCED_TOPICS_KEY = 'vzone_marketing_dashboard_synced_topics_v1';
  */
 export function buildTopicSyncKey(deliverable: string, month: string, title: string): string {
   return `${deliverable.trim().toLowerCase()}|${month.trim().toLowerCase()}|${title.trim().toLowerCase()}`;
+}
+
+/**
+ * Builds a deterministic signature of mutable fields (note + link) so edits
+ * to existing topics are detected and pushed in place to Google Sheets.
+ */
+export function buildTopicContentSignature(note?: string, link?: string): string {
+  return `${(note || '').trim()}|${(link || '').trim()}`;
 }
 
 /**
@@ -678,7 +687,22 @@ export function getSyncedTopicKeys(): Set<string> {
 }
 
 /**
- * Mark topic keys as synced so future sync operations skip them
+ * Retrieve last-synced note+link signatures keyed by buildTopicSyncKey
+ */
+export function getSyncedTopicSignatures(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SYNCED_TOPIC_SIGNATURES_KEY);
+    if (raw) {
+      return JSON.parse(raw) || {};
+    }
+  } catch (e) {
+    console.error('Failed to get synced topic signatures:', e);
+  }
+  return {};
+}
+
+/**
+ * Mark topic keys as synced so future sync operations skip unchanged duplicates
  */
 export function markTopicsAsSynced(keys: string[]): void {
   try {
@@ -693,10 +717,34 @@ export function markTopicsAsSynced(keys: string[]): void {
 }
 
 /**
+ * Persist note+link signatures for synced topics so future note edits or link additions re-sync automatically
+ */
+export function markTopicSignaturesAsSynced(
+  entries: Array<{ key: string; note?: string; link?: string }>
+): void {
+  try {
+    const current = getSyncedTopicSignatures();
+    for (const entry of entries) {
+      if (entry.key) {
+        current[entry.key.trim().toLowerCase()] = buildTopicContentSignature(
+          entry.note,
+          entry.link
+        );
+      }
+    }
+    localStorage.setItem(SYNCED_TOPIC_SIGNATURES_KEY, JSON.stringify(current));
+  } catch (e) {
+    console.error('Failed to mark topic signatures as synced:', e);
+  }
+}
+
+/**
  * Reset synced keys if user wishes to force full re-sync
  */
 export function clearSyncedTopicKeys(): void {
   try {
     localStorage.removeItem(SYNCED_TOPICS_KEY);
+    localStorage.removeItem(SYNCED_TOPIC_SIGNATURES_KEY);
   } catch {}
 }
+

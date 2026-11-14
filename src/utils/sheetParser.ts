@@ -461,25 +461,37 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
   if (topicBreakdownSheetName) {
     const topicSheet = workbook.Sheets[topicBreakdownSheetName];
     const rawRows: any[] = XLSX.utils.sheet_to_json(topicSheet, { header: 1 });
-    if (rawRows && rawRows.length > 1) {
+    if (rawRows && rawRows.length > 0) {
       let monthCol = 1;
       let deliverableCol = 2;
       let titleCol = 3;
       let noteCol = 4;
-      let driveLinkCol = -1;
+      let driveLinkCol = 5;
 
-      // Check header row (row 0)
+      // Check whether row 0 is a header row or already a data row
       const headerRow = rawRows[0] || [];
-      for (let j = 0; j < headerRow.length; j++) {
-        const h = String(headerRow[j] || '').trim().toLowerCase();
-        if (h.includes('month')) monthCol = j;
-        else if (h.includes('deliverable') || h.includes('work item') || h.includes('activity')) deliverableCol = j;
-        else if (h.includes('title') || h.includes('topic')) titleCol = j;
-        else if (h.includes('drive') || h.includes('link') || h.includes('url') || h.includes('folder')) driveLinkCol = j;
-        else if (h.includes('note') || h.includes('detail') || h.includes('remark')) noteCol = j;
+      const joinedHeader = headerRow.map((c: any) => String(c || '').trim().toLowerCase()).join(' ');
+      const hasHeaderRow =
+        joinedHeader.includes('deliverable') ||
+        joinedHeader.includes('work item') ||
+        joinedHeader.includes('topic') ||
+        joinedHeader.includes('title') ||
+        joinedHeader.includes('timestamp');
+
+      if (hasHeaderRow) {
+        driveLinkCol = -1;
+        for (let j = 0; j < headerRow.length; j++) {
+          const h = String(headerRow[j] || '').trim().toLowerCase();
+          if (h.includes('month')) monthCol = j;
+          else if (h.includes('deliverable') || h.includes('work item') || h.includes('activity')) deliverableCol = j;
+          else if (h.includes('title') || h.includes('topic')) titleCol = j;
+          else if (h.includes('drive') || h.includes('link') || h.includes('url') || h.includes('folder')) driveLinkCol = j;
+          else if (h.includes('note') || h.includes('detail') || h.includes('remark')) noteCol = j;
+        }
       }
 
-      for (let r = 1; r < rawRows.length; r++) {
+      const startRow = hasHeaderRow ? 1 : 0;
+      for (let r = startRow; r < rawRows.length; r++) {
         const row = rawRows[r];
         if (!row || row.length === 0) continue;
         const rawDeliverable = String(row[deliverableCol] || '').trim();
@@ -492,10 +504,21 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string): D
         const rawMonth = row[monthCol];
         const normMonth = rawMonth ? normalizeMonth(rawMonth) : latestMonth || 'Nov 2026';
         const rawNote = row[noteCol] !== undefined && row[noteCol] !== null ? String(row[noteCol]).trim() : '';
-        const rawDriveLink =
+        let rawDriveLink =
           driveLinkCol !== -1 && row[driveLinkCol] !== undefined && row[driveLinkCol] !== null
             ? String(row[driveLinkCol]).trim()
             : '';
+
+        // Auto-scan trailing columns if link column header wasn't present
+        if (!rawDriveLink) {
+          for (let c = 0; c < row.length; c++) {
+            const cellStr = String(row[c] || '').trim();
+            if (/^https?:\/\//i.test(cellStr)) {
+              rawDriveLink = cellStr;
+              break;
+            }
+          }
+        }
 
         // Match against consolidatedWorks
         const delivKey = rawDeliverable.toLowerCase();
@@ -1223,17 +1246,21 @@ export function exportToCsv(data: DashboardData): string {
   const hasMultipleMonths = data.availableMonths && data.availableMonths.length > 1;
 
   if (hasMultipleMonths) {
-    lines.push(`S.No,Month,Activity,Delivered Count,Category,Note,Scope Description`);
+    lines.push(`S.No,Month,Activity,Delivered Count,Category,Note,Link / URL,Scope Description`);
     data.worksCompleted.forEach((w, idx) => {
+      const mKey = w.month || data.selectedMonth || '';
+      const linkVal = (mKey && w.monthlyDriveLinks?.[mKey]) || w.driveLink || '';
       lines.push(
-        `${idx + 1},"${(w.month || 'Current Month').replace(/"/g, '""')}","${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.customNote || '').replace(/"/g, '""')}","${(w.notes || '').replace(/"/g, '""')}"`
+        `${idx + 1},"${(w.month || 'Current Month').replace(/"/g, '""')}","${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.customNote || '').replace(/"/g, '""')}","${linkVal.replace(/"/g, '""')}","${(w.notes || '').replace(/"/g, '""')}"`
       );
     });
   } else {
-    lines.push(`S.No,Activity,Delivered Count,Category,Note,Scope Description`);
+    lines.push(`S.No,Activity,Delivered Count,Category,Note,Link / URL,Scope Description`);
     data.worksCompleted.forEach((w, idx) => {
+      const mKey = w.month || data.selectedMonth || '';
+      const linkVal = (mKey && w.monthlyDriveLinks?.[mKey]) || w.driveLink || '';
       lines.push(
-        `${idx + 1},"${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.customNote || '').replace(/"/g, '""')}","${(w.notes || '').replace(/"/g, '""')}"`
+        `${idx + 1},"${w.activity.replace(/"/g, '""')}",${w.count},"${w.category}","${(w.customNote || '').replace(/"/g, '""')}","${linkVal.replace(/"/g, '""')}","${(w.notes || '').replace(/"/g, '""')}"`
       );
     });
   }
@@ -1242,18 +1269,17 @@ export function exportToCsv(data: DashboardData): string {
 }
 
 /**
- * Exports all deliverable topics and sub-categories into a clean CSV tab layout
+ * Exports all deliverable topics, notes, and saved links into a clean CSV tab layout
  * ready to paste or import as a new tab in Google Sheets.
  */
 export function exportSubItemsToSheetTabCsv(data: DashboardData, selectedMonth?: string): string {
   const lines: string[] = [];
-  lines.push(`Deliverable / Activity,Month,Topic Title,Topic Note,Category,Deliverable Count,Recorded At`);
+  lines.push(`Deliverable / Activity,Month,Topic Title,Topic Note,Link / URL,Category,Deliverable Count,Recorded At`);
 
   const targetMonth = selectedMonth || data.selectedMonth || 'All Months';
 
   (data.worksCompleted || []).forEach((w) => {
-    // Gather all sub-items across months or for targetMonth
-    let itemsToExport: { month: string; title: string; note?: string; createdAt?: string }[] = [];
+    let itemsToExport: { month: string; title: string; note?: string; driveLink?: string; createdAt?: string }[] = [];
 
     if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
       for (const [m, list] of Object.entries(w.monthlySubItems)) {
@@ -1263,6 +1289,7 @@ export function exportSubItemsToSheetTabCsv(data: DashboardData, selectedMonth?:
               month: m,
               title: item.title,
               note: item.note,
+              driveLink: item.driveLink,
               createdAt: item.createdAt,
             });
           });
@@ -1274,6 +1301,7 @@ export function exportSubItemsToSheetTabCsv(data: DashboardData, selectedMonth?:
           month: w.month || targetMonth,
           title: item.title,
           note: item.note,
+          driveLink: item.driveLink,
           createdAt: item.createdAt,
         });
       });
@@ -1282,13 +1310,14 @@ export function exportSubItemsToSheetTabCsv(data: DashboardData, selectedMonth?:
     if (itemsToExport.length > 0) {
       itemsToExport.forEach((item) => {
         lines.push(
-          `"${w.activity.replace(/"/g, '""')}","${item.month.replace(/"/g, '""')}","${item.title.replace(/"/g, '""')}","${(item.note || '').replace(/"/g, '""')}","${w.category}","${w.count}","${item.createdAt || ''}"`
+          `"${w.activity.replace(/"/g, '""')}","${item.month.replace(/"/g, '""')}","${item.title.replace(/"/g, '""')}","${(item.note || '').replace(/"/g, '""')}","${(item.driveLink || '').replace(/"/g, '""')}","${w.category}","${w.count}","${item.createdAt || ''}"`
         );
       });
     } else {
-      // If no sub-items entered yet, include the deliverable row so it is visible in the sheet
+      const mKey = w.month || targetMonth;
+      const fallbackLink = (mKey && w.monthlyDriveLinks?.[mKey]) || w.driveLink || '';
       lines.push(
-        `"${w.activity.replace(/"/g, '""')}","${w.month || targetMonth}","[No topics entered yet]","","${w.category}","${w.count}",""`
+        `"${w.activity.replace(/"/g, '""')}","${mKey}","[No topics entered yet]","","${fallbackLink.replace(/"/g, '""')}","${w.category}","${w.count}",""`
       );
     }
   });
@@ -1298,22 +1327,27 @@ export function exportSubItemsToSheetTabCsv(data: DashboardData, selectedMonth?:
 
 /**
  * Downloads a multi-tab Excel workbook (.xlsx) including:
- * 1. Summary tab
- * 2. Dedicated "Topic Breakdown" tab for Google Sheets
+ * 1. Summary tab (with Deliverable Links)
+ * 2. Dedicated "Topic Breakdown" tab for Google Sheets (with Topic Links)
  */
 export function downloadWorkbookWithSubItemsTab(data: DashboardData, selectedMonth?: string) {
   const wb = XLSX.utils.book_new();
 
   // Tab 1: Deliverables Summary
-  const summaryRows = (data.worksCompleted || []).map((w, idx) => ({
-    'S.No': idx + 1,
-    'Activity': w.activity,
-    'Category': w.category,
-    'Count': w.count,
-    'Month': w.month || selectedMonth || 'Current',
-    'Custom Note': w.customNote || '',
-    'Scope': w.notes || '',
-  }));
+  const summaryRows = (data.worksCompleted || []).map((w, idx) => {
+    const mKey = w.month || selectedMonth || '';
+    const linkVal = (mKey && w.monthlyDriveLinks?.[mKey]) || w.driveLink || '';
+    return {
+      'S.No': idx + 1,
+      'Activity': w.activity,
+      'Category': w.category,
+      'Count': w.count,
+      'Month': w.month || selectedMonth || 'Current',
+      'Custom Note': w.customNote || '',
+      'Link / URL': linkVal,
+      'Scope': w.notes || '',
+    };
+  });
   const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
 
@@ -1322,7 +1356,7 @@ export function downloadWorkbookWithSubItemsTab(data: DashboardData, selectedMon
   const breakdownRows: any[] = [];
 
   (data.worksCompleted || []).forEach((w) => {
-    let subList: { month: string; title: string; note?: string; createdAt?: string }[] = [];
+    let subList: { month: string; title: string; note?: string; driveLink?: string; createdAt?: string }[] = [];
     if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
       for (const [m, list] of Object.entries(w.monthlySubItems)) {
         if (targetMonth === 'all' || isSameMonth(m, targetMonth)) {
@@ -1331,6 +1365,7 @@ export function downloadWorkbookWithSubItemsTab(data: DashboardData, selectedMon
               month: m,
               title: item.title,
               note: item.note,
+              driveLink: item.driveLink,
               createdAt: item.createdAt,
             });
           });
@@ -1342,6 +1377,7 @@ export function downloadWorkbookWithSubItemsTab(data: DashboardData, selectedMon
           month: w.month || targetMonth,
           title: item.title,
           note: item.note,
+          driveLink: item.driveLink,
           createdAt: item.createdAt,
         });
       });
@@ -1355,18 +1391,22 @@ export function downloadWorkbookWithSubItemsTab(data: DashboardData, selectedMon
           'Item #': idx + 1,
           'Topic Title': st.title,
           'Topic Note': st.note || '',
+          'Link / URL': st.driveLink || '',
           'Category': w.category,
           'Deliverable Total': w.count,
           'Added At': st.createdAt ? new Date(st.createdAt).toLocaleDateString() : '',
         });
       });
     } else {
+      const mKey = w.month || targetMonth;
+      const fallbackLink = (mKey && w.monthlyDriveLinks?.[mKey]) || w.driveLink || '';
       breakdownRows.push({
         'Deliverable': w.activity,
-        'Month': w.month || targetMonth,
+        'Month': mKey,
         'Item #': 1,
         'Topic Title': 'No topics recorded yet',
         'Topic Note': '',
+        'Link / URL': fallbackLink,
         'Category': w.category,
         'Deliverable Total': w.count,
         'Added At': '',

@@ -25,7 +25,14 @@ import { DashboardData, SyncSettings, AutoSyncInterval, WorkItem } from '../type
 import { fetchAndParseGoogleSheet } from '../utils/googleSheetSync';
 import { parseExcelWorkbook } from '../utils/sheetParser';
 import { GOOGLE_APPS_SCRIPT_CODE } from '../utils/googleAppsScriptTemplate';
-import { buildTopicSyncKey, getSyncedTopicKeys, markTopicsAsSynced } from '../utils/storage';
+import {
+  buildTopicSyncKey,
+  buildTopicContentSignature,
+  getSyncedTopicKeys,
+  getSyncedTopicSignatures,
+  markTopicsAsSynced,
+  markTopicSignaturesAsSynced,
+} from '../utils/storage';
 
 interface UploadSheetModalProps {
   isOpen: boolean;
@@ -233,7 +240,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
     }
   };
 
-  // Push existing topics to Google Sheet in bulk (or force all)
+  // Push existing topics & saved links to Google Sheet in bulk (updates edited rows in place, never duplicates)
   const handleBulkSyncTopics = async (forceAll: boolean = false) => {
     const url = webhookUrl.trim();
     if (!url) {
@@ -244,58 +251,117 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       return;
     }
 
-    // Gather all topics from worksCompleted
-    const items: Array<{ deliverable: string; month: string; title: string; note: string }> = [];
+    const topicMap = new Map<
+      string,
+      { deliverable: string; month: string; title: string; note: string; link: string }
+    >();
+    const deliverableLinksPayload: Array<{
+      month: string;
+      deliverable: string;
+      note: string;
+      link: string;
+    }> = [];
+    const seenDeliverableLinks = new Set<string>();
+
+    const registerTopic = (
+      deliverable: string,
+      month: string,
+      title: string,
+      note?: string,
+      link?: string
+    ) => {
+      const cleanTitle = (title || '').trim();
+      if (!cleanTitle) return;
+      const key = buildTopicSyncKey(deliverable, month, cleanTitle);
+      const prev = topicMap.get(key);
+      const cleanNote = (note || '').trim();
+      const cleanLink = (link || '').trim();
+      if (!prev) {
+        topicMap.set(key, {
+          deliverable,
+          month,
+          title: cleanTitle,
+          note: cleanNote,
+          link: cleanLink,
+        });
+      } else {
+        topicMap.set(key, {
+          ...prev,
+          note: cleanNote || prev.note,
+          link: cleanLink || prev.link,
+        });
+      }
+    };
+
     for (const w of worksCompleted) {
-      if (w.subItems && w.subItems.length > 0) {
-        for (const s of w.subItems) {
-          items.push({
+      const fallbackMonth = w.month || selectedMonth || 'Nov 2026';
+      if (w.driveLink && w.driveLink.trim()) {
+        const dlKey = `${fallbackMonth.trim().toLowerCase()}|${w.activity.trim().toLowerCase()}`;
+        if (!seenDeliverableLinks.has(dlKey)) {
+          seenDeliverableLinks.add(dlKey);
+          deliverableLinksPayload.push({
+            month: fallbackMonth,
             deliverable: w.activity,
-            month: w.month || selectedMonth || 'Nov 2026',
-            title: s.title,
-            note: s.note || '',
+            note: (w.customNote || '').trim(),
+            link: w.driveLink.trim(),
           });
         }
       }
-      if (w.monthlySubItems) {
-        for (const [mName, mList] of Object.entries(w.monthlySubItems)) {
-          for (const s of mList || []) {
-            // Avoid duplicate if already in subItems
-            const already = items.some(
-              (it) => it.deliverable === w.activity && it.month === mName && it.title === s.title
-            );
-            if (!already) {
-              items.push({
-                deliverable: w.activity,
+      if (w.monthlyDriveLinks) {
+        for (const [mName, linkUrl] of Object.entries(w.monthlyDriveLinks)) {
+          if (linkUrl && linkUrl.trim()) {
+            const dlKey = `${mName.trim().toLowerCase()}|${w.activity.trim().toLowerCase()}`;
+            if (!seenDeliverableLinks.has(dlKey)) {
+              seenDeliverableLinks.add(dlKey);
+              deliverableLinksPayload.push({
                 month: mName,
-                title: s.title,
-                note: s.note || '',
+                deliverable: w.activity,
+                note: (w.monthlyNotes?.[mName] || w.customNote || '').trim(),
+                link: linkUrl.trim(),
               });
             }
           }
         }
       }
+
+      if (w.subItems && w.subItems.length > 0) {
+        for (const s of w.subItems) {
+          registerTopic(w.activity, fallbackMonth, s.title, s.note, s.driveLink);
+        }
+      }
+      if (w.monthlySubItems) {
+        for (const [mName, mList] of Object.entries(w.monthlySubItems)) {
+          for (const s of mList || []) {
+            registerTopic(w.activity, mName, s.title, s.note, s.driveLink);
+          }
+        }
+      }
     }
 
-    if (items.length === 0) {
+    const items = Array.from(topicMap.values());
+
+    if (items.length === 0 && deliverableLinksPayload.length === 0) {
       setTestResult({
-        message: 'No deliverable details found in the dashboard yet. Expand any deliverable and add details first, or click "Send Test Row".',
+        message: 'No deliverable details or links found in the dashboard yet. Expand any deliverable and add details first, or click "Send Test Row".',
         isError: true,
       });
       return;
     }
 
-    // Filter out details that have already been synced unless forceAll is true
+    // Sync items that are either new OR have an edited note/link compared to last sync
     const syncedKeys = forceAll ? new Set<string>() : getSyncedTopicKeys();
+    const syncedSigs = forceAll ? {} : getSyncedTopicSignatures();
     const itemsToSync = forceAll
       ? items
-      : items.filter(
-          (it) => !syncedKeys.has(buildTopicSyncKey(it.deliverable, it.month, it.title))
-        );
+      : items.filter((it) => {
+          const key = buildTopicSyncKey(it.deliverable, it.month, it.title);
+          if (!syncedKeys.has(key)) return true;
+          return syncedSigs[key] !== buildTopicContentSignature(it.note, it.link);
+        });
 
-    if (itemsToSync.length === 0) {
+    if (itemsToSync.length === 0 && deliverableLinksPayload.length === 0) {
       setTestResult({
-        message: 'All details are already marked as synced in your Google Sheet! To push all details again anyway, click "Force Push All Details".',
+        message: 'All details & links are already synced in your Google Sheet! Click "Force Push All Details" to re-verify every row.',
       });
       return;
     }
@@ -310,16 +376,31 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       });
 
       const newlySyncedKeys: string[] = [];
+      const newlySyncedSigs: Array<{ key: string; note: string; link: string }> = [];
 
-      // Send each detail row-by-row with verified addTopic action
+      if (deliverableLinksPayload.length > 0) {
+        await fetch(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'syncDeliverableLinks',
+            deliverableLinks: deliverableLinksPayload,
+          }),
+        }).catch(() => {});
+      }
+
+      // Send each detail row-by-row with upsertTopic (adds new or updates existing notes/links in place)
       for (let i = 0; i < itemsToSync.length; i++) {
         const item = itemsToSync[i];
         const queryParams = new URLSearchParams({
-          action: 'addTopic',
+          action: 'upsertTopic',
           deliverable: item.deliverable,
           month: item.month,
           title: item.title,
           note: item.note,
+          link: item.link,
+          driveLink: item.link,
         });
         const separator = url.includes('?') ? '&' : '?';
         const targetWithParams = `${url}${separator}${queryParams.toString()}`;
@@ -329,11 +410,13 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
           mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
-            action: 'addTopic',
+            action: 'upsertTopic',
             deliverable: item.deliverable,
             month: item.month,
             title: item.title,
             note: item.note,
+            link: item.link,
+            driveLink: item.link,
           }),
         }).catch(() => {
           try {
@@ -342,7 +425,9 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
           } catch {}
         });
 
-        newlySyncedKeys.push(buildTopicSyncKey(item.deliverable, item.month, item.title));
+        const syncKey = buildTopicSyncKey(item.deliverable, item.month, item.title);
+        newlySyncedKeys.push(syncKey);
+        newlySyncedSigs.push({ key: syncKey, note: item.note, link: item.link });
 
         if (i < itemsToSync.length - 1) {
           await new Promise((r) => setTimeout(r, 150));
@@ -350,18 +435,19 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
       }
 
       markTopicsAsSynced(newlySyncedKeys);
+      markTopicSignaturesAsSynced(newlySyncedSigs);
       import('../utils/firestoreTasks')
         .then((m) => m.saveSharedSyncedTopics(newlySyncedKeys))
         .catch(console.warn);
 
       setTestResult({
         message: forceAll
-          ? `✅ Successfully re-pushed all ${itemsToSync.length} details into your Google Sheet "Topic Breakdown" tab!`
-          : `✅ Pushed ${itemsToSync.length} new details into your Google Sheet "Topic Breakdown" tab! (${items.length - itemsToSync.length} were already synced, skipping duplicates).`,
+          ? `✅ Verified & backed up all ${itemsToSync.length} details + saved links into your Google Sheet "Topic Breakdown" tab!`
+          : `✅ Synced ${itemsToSync.length} new/updated details + links into your Google Sheet "Topic Breakdown" tab without duplicates!`,
       });
     } catch (err: any) {
       setTestResult({
-        message: `Sent update of ${itemsToSync.length} details. Please check your Google Sheet.`,
+        message: `Sent update of ${itemsToSync.length} details & links. Please check your Google Sheet.`,
       });
     } finally {
       setIsBulkSyncing(false);
@@ -585,7 +671,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
                 </div>
 
                 <p className="text-[11px] text-indigo-900/80 leading-relaxed">
-                  Whenever you add details under any deliverable (e.g. <em>Reels Video</em>), it automatically saves into a new tab named <strong>"Topic Breakdown"</strong> in your Google Sheet in real time.
+                  Whenever you add or edit details &amp; saved links under any deliverable (e.g. <em>Reels Video</em>), it automatically backs them up into your <strong>"Topic Breakdown"</strong> tab (including the <strong>Link / URL</strong> column) and updates edited rows in place without duplicating.
                 </p>
 
                 {/* Web App URL input and actions */}
@@ -730,7 +816,7 @@ export const UploadSheetModal: React.FC<UploadSheetModalProps> = ({
                           Select and delete everything in <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800">Code.gs</code>, click <strong>"Copy Script Code"</strong> above, paste it into the editor, and click the <strong>Save (💾)</strong> icon.
                         </li>
                         <li>
-                          Click the blue <strong>Deploy</strong> button (top right) &gt; <strong>New deployment</strong>:
+                          Click the blue <strong>Deploy</strong> button (top right) &gt; <strong>New deployment</strong> (or if updating an existing script so links &amp; edits sync: click <strong>Deploy &gt; Manage deployments &gt; Edit ✏️ &gt; New version &gt; Deploy</strong>):
                           <ul className="list-disc list-inside ml-3 mt-1 space-y-1 text-slate-600">
                             <li>Click the gear icon ⚙️ next to <em>Select type</em> and pick <strong>Web app</strong>.</li>
                             <li>Execute as: <strong>Me</strong></li>
