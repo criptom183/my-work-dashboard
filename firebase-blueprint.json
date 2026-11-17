@@ -18,13 +18,25 @@
       },
       "required": ["id", "title", "status", "category"]
     },
+    "ActiveTaskUpdate": {
+      "title": "ActiveTaskUpdate",
+      "description": "Pinned active tasks entry with date and tasks list persisted until the next update",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 40 },
+        "tasks": { "type": "string", "maxLength": 5000 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["date", "tasks", "updatedAt"]
+    },
     "Config": {
       "title": "Config",
-      "description": "Shared configuration and active dashboard document",
+      "description": "Shared configuration, active dashboard document, active tasks, and stream backgrounds",
       "type": "object",
       "properties": {
         "sheetUrl": { "type": "string", "maxLength": 500 },
         "dashboardData": { "type": "object" },
+        "activeTaskUpdate": { "$ref": "ActiveTaskUpdate" },
         "updatedAt": { "type": "string", "maxLength": 50 }
       }
     }
@@ -36,7 +48,7 @@
     },
     "/config/{configId}": {
       "schema": "Config",
-      "description": "Shared configuration settings"
+      "description": "Shared configuration settings, active dashboard state, deliverable vaults, and active tasks log"
     }
   }
 }

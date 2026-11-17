@@ -1,28 +1,95 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import {
   getFirestore,
   collection,
   doc,
+  getDocFromServer,
   setDoc,
   deleteDoc,
   onSnapshot,
   query,
-  orderBy,
-  serverTimestamp,
   arrayUnion,
   updateDoc,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { TaskItem, DashboardData, SyncSettings } from '../types';
+import { TaskItem, DashboardData, SyncSettings, ActiveTaskUpdate } from '../types';
 import { isTaskDeleted, markTaskAsDeleted } from './taskStorage';
-import { sanitizeWorkItemSubItems } from './storage';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const auth = getAuth(app);
 
 export const db =
   firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
     ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
     : getFirestore(app);
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: Array<{
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }>;
+  };
+}
+
+export function handleFirestoreError(
+  error: unknown,
+  operationType: OperationType,
+  path: string | null
+): void {
+  const user = auth?.currentUser;
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    operationType,
+    path,
+    authInfo: {
+      userId: user?.uid,
+      email: user?.email,
+      emailVerified: user?.emailVerified,
+      isAnonymous: user?.isAnonymous,
+      tenantId: user?.tenantId,
+      providerInfo:
+        user?.providerData?.map((provider) => ({
+          providerId: provider.providerId,
+          displayName: provider.displayName,
+          email: provider.email,
+          photoUrl: provider.photoURL,
+        })) || [],
+    },
+  };
+  console.warn('Firestore Error:', JSON.stringify(errInfo));
+}
+
+async function testConnection(): Promise<void> {
+  try {
+    await getDocFromServer(doc(db, 'config', 'active_dashboard'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+void testConnection();
 
 const TASKS_COLLECTION = 'tasks';
 const CONFIG_COLLECTION = 'config';
@@ -204,6 +271,20 @@ export async function saveSharedDashboardData(dashboardData: DashboardData): Pro
           item.monthlyDriveLinks = cleanMLinks;
         }
       }
+      if (w.streamBg && w.streamBg !== 'undefined' && w.streamBg.trim()) {
+        item.streamBg = w.streamBg.trim();
+      }
+      if (w.monthlyStreamBgs && typeof w.monthlyStreamBgs === 'object') {
+        const cleanMBgs: Record<string, string> = {};
+        for (const [m, bgVal] of Object.entries(w.monthlyStreamBgs)) {
+          if (bgVal && bgVal !== 'undefined' && typeof bgVal === 'string' && bgVal.trim()) {
+            cleanMBgs[m] = bgVal.trim();
+          }
+        }
+        if (Object.keys(cleanMBgs).length > 0) {
+          item.monthlyStreamBgs = cleanMBgs;
+        }
+      }
       if (w.highlight !== undefined) item.highlight = w.highlight;
       if (w.month !== undefined) item.month = w.month;
       if (w.monthlyBreakdown !== undefined) item.monthlyBreakdown = w.monthlyBreakdown;
@@ -212,24 +293,27 @@ export async function saveSharedDashboardData(dashboardData: DashboardData): Pro
       return item;
     });
 
-    const payload = JSON.parse(
-      JSON.stringify({
-        fileName: dashboardData.fileName || 'VZONE.XLSX',
-        sheetSourceUrl: dashboardData.sheetSourceUrl || '',
-        lastUpdated: dashboardData.lastUpdated || new Date().toISOString(),
-        period: dashboardData.period || '',
-        selectedMonth: dashboardData.selectedMonth || '',
-        availableMonths: dashboardData.availableMonths || [],
-        worksCompleted: sanitizedWorks,
-        workListNotes: dashboardData.workListNotes || {},
-        suggestions: dashboardData.suggestions || [],
-        socialAudit: dashboardData.socialAudit || {},
-        updatedAt: new Date().toISOString(),
-      })
-    );
-    await setDoc(configRef, payload);
+    const payloadObj: Record<string, any> = {
+      fileName: dashboardData.fileName || 'VZONE.XLSX',
+      sheetSourceUrl: dashboardData.sheetSourceUrl || '',
+      lastUpdated: dashboardData.lastUpdated || new Date().toISOString(),
+      period: dashboardData.period || '',
+      selectedMonth: dashboardData.selectedMonth || '',
+      availableMonths: dashboardData.availableMonths || [],
+      worksCompleted: sanitizedWorks,
+      workListNotes: dashboardData.workListNotes || {},
+      suggestions: dashboardData.suggestions || [],
+      socialAudit: dashboardData.socialAudit || {},
+      updatedAt: new Date().toISOString(),
+    };
+    if (dashboardData.activeTaskUpdate !== undefined) {
+      payloadObj.activeTaskUpdate = dashboardData.activeTaskUpdate;
+    }
+
+    const payload = JSON.parse(JSON.stringify(payloadObj));
+    await setDoc(configRef, payload, { merge: true });
   } catch (err) {
-    console.warn('Failed to save shared dashboard to Firestore:', err);
+    handleFirestoreError(err, OperationType.WRITE, `${CONFIG_COLLECTION}/active_dashboard`);
   }
 }
 
@@ -262,6 +346,14 @@ export function subscribeToSharedDashboardData(
                   : {},
               suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : [],
               socialAudit: raw.socialAudit || undefined,
+              activeTaskUpdate:
+                raw.activeTaskUpdate &&
+                typeof raw.activeTaskUpdate === 'object' &&
+                typeof raw.activeTaskUpdate.tasks === 'string'
+                  ? (raw.activeTaskUpdate as ActiveTaskUpdate)
+                  : raw.activeTaskUpdate === null
+                  ? null
+                  : undefined,
             };
             onDashboardUpdated(parsedData);
           }
@@ -451,6 +543,8 @@ export interface StoredDeliverableNote {
   notes?: string;
   driveLink?: string;
   monthlyDriveLinks?: Record<string, string>;
+  streamBg?: string;
+  monthlyStreamBgs?: Record<string, string>;
   updatedAt: string;
 }
 
@@ -532,9 +626,67 @@ export function subscribeToDeliverableNotes(
       }
     );
   } catch (err) {
-    console.warn('Failed to subscribe to deliverable_notes:', err);
+    handleFirestoreError(err, OperationType.GET, `${CONFIG_COLLECTION}/deliverable_notes`);
     return () => {};
   }
 }
 
+/**
+ * Save active task update (date + tasks text) to dedicated Firestore config/active_tasks document
+ * so it stays visible across reloads and devices until the next update.
+ */
+export async function saveActiveTaskUpdateToFirestore(
+  update: ActiveTaskUpdate | null
+): Promise<void> {
+  const path = `${CONFIG_COLLECTION}/active_tasks`;
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'active_tasks');
+    await setDoc(
+      ref,
+      {
+        activeTaskUpdate: update ? JSON.parse(JSON.stringify(update)) : null,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
 
+/**
+ * Subscribe to the persisted Active Tasks update across all devices in real time.
+ */
+export function subscribeToActiveTaskUpdate(
+  onUpdate: (update: ActiveTaskUpdate | null) => void
+): () => void {
+  const path = `${CONFIG_COLLECTION}/active_tasks`;
+  try {
+    const ref = doc(db, CONFIG_COLLECTION, 'active_tasks');
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data();
+          if (raw && raw.activeTaskUpdate === null) {
+            onUpdate(null);
+          } else if (
+            raw &&
+            raw.activeTaskUpdate &&
+            typeof raw.activeTaskUpdate === 'object' &&
+            typeof raw.activeTaskUpdate.tasks === 'string' &&
+            typeof raw.activeTaskUpdate.date === 'string'
+          ) {
+            onUpdate(raw.activeTaskUpdate as ActiveTaskUpdate);
+          }
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, path);
+      }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+    return () => {};
+  }
+}

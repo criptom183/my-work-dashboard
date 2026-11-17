@@ -9,7 +9,7 @@ import {
   DEFAULT_GOOGLE_SHEET_URL,
   DEPRECATED_SHEET_IDS,
 } from './data/initialData';
-import { DashboardData, WorkItem, SyncSettings, TaskItem, DeliverableSubItem } from './types';
+import { DashboardData, WorkItem, SyncSettings, TaskItem, DeliverableSubItem, ActiveTaskUpdate } from './types';
 import { Sidebar } from './components/Sidebar';
 import { BrandTopBar } from './components/BrandTopBar';
 import { BrandKpiCards } from './components/BrandKpiCards';
@@ -17,6 +17,7 @@ import { BrandMonthSelector } from './components/BrandMonthSelector';
 import { BrandWorksCompleted } from './components/BrandWorksCompleted';
 import { BrandOutputMix } from './components/BrandOutputMix';
 import { BrandTasksWidget } from './components/BrandTasksWidget';
+import { ActiveTasksSection } from './components/ActiveTasksSection';
 import { UploadSheetModal } from './components/UploadSheetModal';
 import { TaskManagerPage } from './components/TaskManagerPage';
 import { PresentationMode } from './components/PresentationMode';
@@ -40,6 +41,8 @@ import {
   markTopicsAsSynced,
   markTopicSignaturesAsSynced,
   deduplicateSubItems,
+  saveActiveTaskUpdateToStorage,
+  loadActiveTaskUpdateFromStorage,
 } from './utils/storage';
 import {
   loadTasksFromStorage,
@@ -65,6 +68,8 @@ import {
   saveDeliverableNotesToFirestore,
   subscribeToDeliverableNotes,
   StoredDeliverableNote,
+  saveActiveTaskUpdateToFirestore,
+  subscribeToActiveTaskUpdate,
 } from './utils/firestoreTasks';
 import {
   RefreshCw,
@@ -143,6 +148,11 @@ export default function App() {
 
   // Tasks state backed by localStorage
   const [tasks, setTasks] = useState<TaskItem[]>(() => loadTasksFromStorage());
+
+  // Persistent Active Tasks snapshot (date + tasks text, stays until next update)
+  const [activeTaskUpdate, setActiveTaskUpdate] = useState<ActiveTaskUpdate | null>(() =>
+    loadActiveTaskUpdateFromStorage()
+  );
 
   // Listen to browser hash changes for Back/Forward and direct URLs
   useEffect(() => {
@@ -258,6 +268,9 @@ export default function App() {
 
   const syncSettingsRef = useRef(syncSettings);
   syncSettingsRef.current = syncSettings;
+
+  const activeTaskUpdateRef = useRef(activeTaskUpdate);
+  activeTaskUpdateRef.current = activeTaskUpdate;
 
   // Permanent in-memory mirror of Firestore config/deliverable_notes vault
   const cloudDeliverableNotesRef = useRef<{
@@ -394,6 +407,38 @@ export default function App() {
       const resolvedDriveLink =
         cleanVaultDriveLink || cleanWDriveLink || cleanMatchDriveLink || undefined;
 
+      // Merge monthlyStreamBgs (vaultNote takes top precedence, then w, then current item)
+      const mergedMonthlyStreamBgs: Record<string, string> = {};
+      for (const bgSource of [
+        match?.monthlyStreamBgs,
+        w.monthlyStreamBgs,
+        vaultNote?.monthlyStreamBgs,
+      ]) {
+        if (bgSource && typeof bgSource === 'object') {
+          for (const [m, bgVal] of Object.entries(bgSource)) {
+            if (typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined') {
+              mergedMonthlyStreamBgs[m] = bgVal.trim();
+            }
+          }
+        }
+      }
+
+      const cleanVaultStreamBg =
+        vaultNote?.streamBg !== undefined
+          ? vaultNote.streamBg.trim() && vaultNote.streamBg.trim() !== 'undefined'
+            ? vaultNote.streamBg.trim()
+            : undefined
+          : undefined;
+      const cleanWStreamBg =
+        w.streamBg && w.streamBg.trim() !== 'undefined' ? w.streamBg.trim() : undefined;
+      const cleanMatchStreamBg =
+        match?.streamBg && match.streamBg.trim() !== 'undefined' ? match.streamBg.trim() : undefined;
+
+      const resolvedStreamBg =
+        vaultNote?.streamBg !== undefined
+          ? cleanVaultStreamBg
+          : cleanWStreamBg || cleanMatchStreamBg || undefined;
+
       let activeSub: DeliverableSubItem[] = [];
       if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
         activeSub = deduplicateSubItems(mergedMonthly[w.month]);
@@ -414,6 +459,9 @@ export default function App() {
         driveLink: resolvedDriveLink,
         monthlyDriveLinks:
           Object.keys(mergedMonthlyDriveLinks).length > 0 ? mergedMonthlyDriveLinks : undefined,
+        streamBg: resolvedStreamBg,
+        monthlyStreamBgs:
+          Object.keys(mergedMonthlyStreamBgs).length > 0 ? mergedMonthlyStreamBgs : undefined,
         subItems: activeSub,
         monthlySubItems: mergedMonthly,
       };
@@ -475,6 +523,7 @@ export default function App() {
           sheetSourceUrl: currentUrl,
           worksCompleted: mergedWorks,
           workListNotes: mergedNotes,
+          activeTaskUpdate: activeTaskUpdateRef.current,
         };
 
         setData(mergedData);
@@ -621,10 +670,19 @@ export default function App() {
             sheetSourceUrl: cloudDashboard.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL,
             worksCompleted: mergedWorks,
             workListNotes: mergedNotes,
+            activeTaskUpdate:
+              cloudDashboard.activeTaskUpdate !== undefined
+                ? cloudDashboard.activeTaskUpdate
+                : activeTaskUpdateRef.current,
           };
           saveDashboardToStorage(merged);
           return merged;
         });
+
+        if (cloudDashboard.activeTaskUpdate !== undefined) {
+          setActiveTaskUpdate(cloudDashboard.activeTaskUpdate);
+          saveActiveTaskUpdateToStorage(cloudDashboard.activeTaskUpdate);
+        }
 
         setIsSavedInStorage(true);
         if (cloudDashboard.selectedMonth) {
@@ -787,6 +845,36 @@ export default function App() {
               hasChanges = true;
             }
 
+            const mergedMonthlyStreamBgs: Record<string, string> = {
+              ...(w.monthlyStreamBgs || {}),
+            };
+            if (vaultEntry.monthlyStreamBgs && typeof vaultEntry.monthlyStreamBgs === 'object') {
+              for (const [m, bgVal] of Object.entries(vaultEntry.monthlyStreamBgs)) {
+                if (typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined') {
+                  if (mergedMonthlyStreamBgs[m] !== bgVal.trim()) {
+                    mergedMonthlyStreamBgs[m] = bgVal.trim();
+                    hasChanges = true;
+                  }
+                }
+              }
+            }
+
+            const cleanVaultStreamBg =
+              vaultEntry.streamBg !== undefined
+                ? vaultEntry.streamBg.trim() && vaultEntry.streamBg.trim() !== 'undefined'
+                  ? vaultEntry.streamBg.trim()
+                  : undefined
+                : undefined;
+            const cleanWStreamBg =
+              w.streamBg && w.streamBg.trim() !== 'undefined'
+                ? w.streamBg.trim()
+                : undefined;
+            const nextStreamBg =
+              vaultEntry.streamBg !== undefined ? cleanVaultStreamBg : cleanWStreamBg;
+            if (nextStreamBg !== w.streamBg) {
+              hasChanges = true;
+            }
+
             return {
               ...w,
               notes: nextNotes,
@@ -798,6 +886,11 @@ export default function App() {
                 Object.keys(mergedMonthlyDriveLinks).length > 0
                   ? mergedMonthlyDriveLinks
                   : w.monthlyDriveLinks,
+              streamBg: nextStreamBg,
+              monthlyStreamBgs:
+                Object.keys(mergedMonthlyStreamBgs).length > 0
+                  ? mergedMonthlyStreamBgs
+                  : w.monthlyStreamBgs,
             };
           });
 
@@ -858,6 +951,12 @@ export default function App() {
       }
     });
 
+    // 6. Subscribe to persisted Active Tasks update across devices
+    const unsubActiveTasks = subscribeToActiveTaskUpdate((cloudUpdate) => {
+      setActiveTaskUpdate(cloudUpdate);
+      saveActiveTaskUpdateToStorage(cloudUpdate);
+    });
+
     return () => {
       unsubTasks();
       unsubSheetUrl();
@@ -866,6 +965,7 @@ export default function App() {
       unsubDeliverableNotes();
       unsubSyncSettings();
       unsubSyncedTopics();
+      unsubActiveTasks();
     };
   }, [enrichWorkWithSavedNotesAndDetails, handleSyncGoogleSheet]);
 
@@ -895,25 +995,45 @@ export default function App() {
         enrichWorkWithSavedNotesAndDetails(w, existingByActivity, initialByActivity)
       );
       const restoredWorks = restoreTopicsFromBackup(enriched);
+      const restoredActiveTaskUpdate =
+        loaded.data.activeTaskUpdate !== undefined
+          ? loaded.data.activeTaskUpdate
+          : loadActiveTaskUpdateFromStorage();
+      if (restoredActiveTaskUpdate) {
+        setActiveTaskUpdate(restoredActiveTaskUpdate);
+        saveActiveTaskUpdateToStorage(restoredActiveTaskUpdate);
+      }
       const completeData: DashboardData = {
         ...loaded.data,
         sheetSourceUrl: loaded.data.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL,
         worksCompleted: restoredWorks,
+        activeTaskUpdate: restoredActiveTaskUpdate,
       };
       setData(completeData);
       saveTopicsBackup(restoredWorks);
       setIsSavedInStorage(true);
       setSavedMeta(loaded.meta);
 
-      // Push any locally saved custom notes to the permanent Firestore deliverable_notes vault
+      // Push any locally saved custom notes, links, or stream backgrounds to the permanent Firestore deliverable_notes vault
       const localNotesToPush: Record<string, StoredDeliverableNote> = {};
       for (const w of restoredWorks) {
-        if (w.customNote || (w.monthlyNotes && Object.keys(w.monthlyNotes).length > 0)) {
+        if (
+          w.customNote ||
+          (w.monthlyNotes && Object.keys(w.monthlyNotes).length > 0) ||
+          w.driveLink ||
+          (w.monthlyDriveLinks && Object.keys(w.monthlyDriveLinks).length > 0) ||
+          w.streamBg ||
+          (w.monthlyStreamBgs && Object.keys(w.monthlyStreamBgs).length > 0)
+        ) {
           localNotesToPush[w.activity.trim().toLowerCase()] = {
             activity: w.activity,
             customNote: w.customNote,
             monthlyNotes: w.monthlyNotes,
             notes: w.notes,
+            driveLink: w.driveLink,
+            monthlyDriveLinks: w.monthlyDriveLinks,
+            streamBg: w.streamBg,
+            monthlyStreamBgs: w.monthlyStreamBgs,
             updatedAt: new Date().toISOString(),
           };
         }
@@ -952,11 +1072,18 @@ export default function App() {
   }, [enrichWorkWithSavedNotesAndDetails, handleSyncGoogleSheet]);
 
   const handleSaveToLocalMemory = () => {
-    saveDashboardToStorage(data);
-    saveTopicsBackup(data.worksCompleted);
-    saveSharedDashboardData(data).catch(console.warn);
-    if (data.sheetSourceUrl) {
-      saveSharedSheetUrl(data.sheetSourceUrl).catch(console.warn);
+    const payloadData: DashboardData = {
+      ...data,
+      activeTaskUpdate: activeTaskUpdateRef.current,
+    };
+    saveDashboardToStorage(payloadData);
+    saveTopicsBackup(payloadData.worksCompleted);
+    saveSharedDashboardData(payloadData).catch(console.warn);
+    if (activeTaskUpdateRef.current !== undefined) {
+      saveActiveTaskUpdateToFirestore(activeTaskUpdateRef.current).catch(console.warn);
+    }
+    if (payloadData.sheetSourceUrl) {
+      saveSharedSheetUrl(payloadData.sheetSourceUrl).catch(console.warn);
     }
     setIsSavedInStorage(true);
     const meta = {
@@ -1055,14 +1182,43 @@ export default function App() {
             }
           }
 
+          // Scope deliverable Stream Background to selectedMonth and keep root streamBg in sync
+          const updatedMonthlyStreamBgs = w.monthlyStreamBgs ? { ...w.monthlyStreamBgs } : {};
+          if (updates.streamBg !== undefined) {
+            const trimmedBg = (updates.streamBg || '').trim();
+            if (trimmedBg && trimmedBg !== 'undefined') {
+              updatedMonthlyStreamBgs[targetMonth] = trimmedBg;
+            } else {
+              delete updatedMonthlyStreamBgs[targetMonth];
+            }
+          }
+
+          let rootStreamBg = w.streamBg;
+          if (updates.streamBg !== undefined) {
+            const trimmedBg = (updates.streamBg || '').trim();
+            if (trimmedBg && trimmedBg !== 'undefined') {
+              rootStreamBg = trimmedBg;
+            } else if (Object.keys(updatedMonthlyStreamBgs).length === 0) {
+              rootStreamBg = undefined;
+            } else {
+              const remainingBgs = Object.values(updatedMonthlyStreamBgs).filter(
+                (v) => v && v.trim() && v.trim() !== 'undefined'
+              );
+              rootStreamBg =
+                remainingBgs.length > 0 ? remainingBgs[remainingBgs.length - 1].trim() : undefined;
+            }
+          }
+
           const nextWork: WorkItem = {
             ...w,
             ...updates,
             customNote: rootCustomNote,
             driveLink: rootDriveLink,
+            streamBg: rootStreamBg,
             monthlyBreakdown: updatedBreakdown,
             monthlyNotes: updatedMonthlyNotes,
             monthlyDriveLinks: updatedMonthlyDriveLinks,
+            monthlyStreamBgs: updatedMonthlyStreamBgs,
           };
           updatedTargetWork = nextWork;
           return nextWork;
@@ -1078,7 +1234,8 @@ export default function App() {
           targetMonth,
           updates.customNote,
           updates.notes,
-          updates.driveLink
+          updates.driveLink,
+          updates.streamBg
         );
         const noteEntry: StoredDeliverableNote = {
           activity: tw.activity,
@@ -1089,6 +1246,9 @@ export default function App() {
           driveLink:
             tw.driveLink && tw.driveLink.trim() !== 'undefined' ? tw.driveLink.trim() : '',
           monthlyDriveLinks: tw.monthlyDriveLinks || {},
+          streamBg:
+            tw.streamBg && tw.streamBg.trim() !== 'undefined' ? tw.streamBg.trim() : '',
+          monthlyStreamBgs: tw.monthlyStreamBgs || {},
           updatedAt: new Date().toISOString(),
         };
         cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;
@@ -1164,6 +1324,50 @@ export default function App() {
     });
     setIsSavedInStorage(true);
     showToast(noteText ? 'Note saved!' : 'Note cleared.');
+  };
+
+  const handleSaveActiveTaskUpdate = (date: string, tasksText: string) => {
+    if (isViewOnly) return;
+    const nextUpdate: ActiveTaskUpdate = {
+      date: date.trim(),
+      tasks: tasksText.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    setActiveTaskUpdate(nextUpdate);
+    activeTaskUpdateRef.current = nextUpdate;
+    saveActiveTaskUpdateToStorage(nextUpdate);
+    saveActiveTaskUpdateToFirestore(nextUpdate).catch(console.warn);
+
+    setData((prev) => {
+      const updatedDashboard: DashboardData = {
+        ...prev,
+        activeTaskUpdate: nextUpdate,
+      };
+      saveDashboardToStorage(updatedDashboard);
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
+    setIsSavedInStorage(true);
+    showToast('Active tasks saved! They will remain visible until the next update.');
+  };
+
+  const handleClearActiveTaskUpdate = () => {
+    if (isViewOnly) return;
+    setActiveTaskUpdate(null);
+    activeTaskUpdateRef.current = null;
+    saveActiveTaskUpdateToStorage(null);
+    saveActiveTaskUpdateToFirestore(null).catch(console.warn);
+
+    setData((prev) => {
+      const updatedDashboard: DashboardData = {
+        ...prev,
+        activeTaskUpdate: null,
+      };
+      saveDashboardToStorage(updatedDashboard);
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
+    showToast('Active tasks cleared.', 'info');
   };
 
   const handleAddWorkItem = (
@@ -1867,6 +2071,7 @@ export default function App() {
         ...(dataRef.current.workListNotes || {}),
         ...(newData.workListNotes || {}),
       },
+      activeTaskUpdate: activeTaskUpdateRef.current,
     };
 
     setData(mergedData);
@@ -2242,8 +2447,15 @@ export default function App() {
               />
             </div>
 
-            {/* Right Column: Output mix & Tasks widgets (5 cols) */}
+            {/* Right Column: Active Tasks, Output mix & Tasks widgets (5 cols) */}
             <div className="lg:col-span-5 space-y-6">
+              <ActiveTasksSection
+                activeTaskUpdate={activeTaskUpdate}
+                onSaveActiveTaskUpdate={handleSaveActiveTaskUpdate}
+                onClearActiveTaskUpdate={handleClearActiveTaskUpdate}
+                isViewOnly={isViewOnly}
+              />
+
               <BrandOutputMix
                 works={displayWorks}
                 selectedMonth={selectedMonth}

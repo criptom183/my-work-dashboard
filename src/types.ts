@@ -20,11 +20,19 @@ export interface WorkItem {
   monthlyNotes?: Record<string, string>;
   driveLink?: string;
   monthlyDriveLinks?: Record<string, string>;
+  streamBg?: string;
+  monthlyStreamBgs?: Record<string, string>;
   highlight?: boolean;
   month?: string; // e.g. 'Oct 2026' or 'September'
   monthlyBreakdown?: Record<string, number>; // e.g. { 'Aug 2026': 15, 'Sep 2026': 18, 'Oct 2026': 21 }
   subItems?: DeliverableSubItem[];
   monthlySubItems?: Record<string, DeliverableSubItem[]>;
+}
+
+export interface ActiveTaskUpdate {
+  date: string;
+  tasks: string;
+  updatedAt: string;
 }
 
 export interface SuggestionItem {
@@ -77,6 +85,7 @@ export interface DashboardData {
   socialAudit: SocialAuditPlatform;
   tasks?: TaskItem[];
   workListNotes?: Record<string, string>;
+  activeTaskUpdate?: ActiveTaskUpdate | null;
 }
 
 export type AutoSyncInterval = 'off' | '30s' | '1m' | '5m' | '15m';
