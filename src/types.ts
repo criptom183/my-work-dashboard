@@ -20,8 +20,6 @@ export interface WorkItem {
   monthlyNotes?: Record<string, string>;
   driveLink?: string;
   monthlyDriveLinks?: Record<string, string>;
-  streamBg?: string;
-  monthlyStreamBgs?: Record<string, string>;
   highlight?: boolean;
   month?: string; // e.g. 'Oct 2026' or 'September'
   monthlyBreakdown?: Record<string, number>; // e.g. { 'Aug 2026': 15, 'Sep 2026': 18, 'Oct 2026': 21 }

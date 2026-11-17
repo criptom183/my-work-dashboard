@@ -105,8 +105,6 @@ export interface TopicBackupEntry {
   notes?: string;
   driveLink?: string;
   monthlyDriveLinks?: Record<string, string>;
-  streamBg?: string;
-  monthlyStreamBgs?: Record<string, string>;
 }
 
 /**
@@ -327,14 +325,6 @@ export function getTopicsBackup(): Record<string, TopicBackupEntry> {
           }
         }
       }
-      const monthlyStreamBgs: Record<string, string> = {};
-      if (entry?.monthlyStreamBgs && typeof entry.monthlyStreamBgs === 'object') {
-        for (const [m, bgVal] of Object.entries<any>(entry.monthlyStreamBgs)) {
-          if (typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined') {
-            monthlyStreamBgs[m] = bgVal.trim();
-          }
-        }
-      }
       cleaned[k] = {
         subItems,
         monthlySubItems,
@@ -352,11 +342,6 @@ export function getTopicsBackup(): Record<string, TopicBackupEntry> {
             ? entry.driveLink.trim()
             : undefined,
         monthlyDriveLinks: Object.keys(monthlyDriveLinks).length > 0 ? monthlyDriveLinks : undefined,
-        streamBg:
-          typeof entry?.streamBg === 'string' && entry.streamBg.trim() && entry.streamBg.trim() !== 'undefined'
-            ? entry.streamBg.trim()
-            : undefined,
-        monthlyStreamBgs: Object.keys(monthlyStreamBgs).length > 0 ? monthlyStreamBgs : undefined,
       };
     }
     return cleaned;
@@ -425,18 +410,6 @@ export function saveTopicsBackup(works: WorkItem[]): void {
         }
       }
 
-      // Merge monthlyStreamBgs (preserve non-empty stream backgrounds)
-      const mergedMonthlyStreamBgs: Record<string, string> = {
-        ...(existing.monthlyStreamBgs || {}),
-      };
-      if (w.monthlyStreamBgs && typeof w.monthlyStreamBgs === 'object') {
-        for (const [m, bgVal] of Object.entries(w.monthlyStreamBgs)) {
-          if (typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined') {
-            mergedMonthlyStreamBgs[m] = bgVal.trim();
-          }
-        }
-      }
-
       const resolvedCustomNote =
         (w.customNote && w.customNote.trim() && w.customNote.trim() !== 'undefined' && w.customNote.trim()) ||
         (existing.customNote && existing.customNote.trim() && existing.customNote.trim() !== 'undefined' && existing.customNote.trim()) ||
@@ -452,11 +425,6 @@ export function saveTopicsBackup(works: WorkItem[]): void {
         (existing.driveLink && existing.driveLink.trim() && existing.driveLink.trim() !== 'undefined' && existing.driveLink.trim()) ||
         undefined;
 
-      const resolvedStreamBg =
-        (w.streamBg && w.streamBg.trim() && w.streamBg.trim() !== 'undefined' && w.streamBg.trim()) ||
-        (existing.streamBg && existing.streamBg.trim() && existing.streamBg.trim() !== 'undefined' && existing.streamBg.trim()) ||
-        undefined;
-
       if (
         combinedSub.length > 0 ||
         Object.keys(mergedMonthly).length > 0 ||
@@ -464,9 +432,7 @@ export function saveTopicsBackup(works: WorkItem[]): void {
         Object.keys(mergedMonthlyNotes).length > 0 ||
         resolvedNotes ||
         resolvedDriveLink ||
-        Object.keys(mergedMonthlyDriveLinks).length > 0 ||
-        resolvedStreamBg ||
-        Object.keys(mergedMonthlyStreamBgs).length > 0
+        Object.keys(mergedMonthlyDriveLinks).length > 0
       ) {
         backup[key] = {
           subItems: combinedSub,
@@ -478,9 +444,6 @@ export function saveTopicsBackup(works: WorkItem[]): void {
           driveLink: resolvedDriveLink,
           monthlyDriveLinks:
             Object.keys(mergedMonthlyDriveLinks).length > 0 ? mergedMonthlyDriveLinks : undefined,
-          streamBg: resolvedStreamBg,
-          monthlyStreamBgs:
-            Object.keys(mergedMonthlyStreamBgs).length > 0 ? mergedMonthlyStreamBgs : undefined,
         };
       }
     }
@@ -492,15 +455,14 @@ export function saveTopicsBackup(works: WorkItem[]): void {
 }
 
 /**
- * Explicitly updates or clears a deliverable's note, driveLink, or streamBg in the local backup when user edits/clears it.
+ * Explicitly updates or clears a deliverable's note or driveLink in the local backup when user edits/clears it.
  */
 export function updateWorkNoteInBackup(
   activity: string,
   targetMonth: string,
   customNote: string | undefined,
   notes?: string,
-  driveLink?: string,
-  streamBg?: string
+  driveLink?: string
 ): void {
   try {
     const backup = getTopicsBackup();
@@ -508,7 +470,6 @@ export function updateWorkNoteInBackup(
     const entry = backup[key] || {};
     const monthlyNotes = { ...(entry.monthlyNotes || {}) };
     const monthlyDriveLinks = { ...(entry.monthlyDriveLinks || {}) };
-    const monthlyStreamBgs = { ...(entry.monthlyStreamBgs || {}) };
 
     if (customNote && customNote.trim() && customNote.trim() !== 'undefined') {
       const clean = customNote.trim();
@@ -548,29 +509,9 @@ export function updateWorkNoteInBackup(
       }
     }
 
-    if (streamBg && streamBg.trim() && streamBg.trim() !== 'undefined') {
-      const cleanBg = streamBg.trim();
-      entry.streamBg = cleanBg;
-      if (targetMonth && targetMonth !== 'all') {
-        monthlyStreamBgs[targetMonth] = cleanBg;
-      }
-    } else if (streamBg !== undefined) {
-      if (targetMonth && targetMonth !== 'all') {
-        delete monthlyStreamBgs[targetMonth];
-      }
-      if (Object.keys(monthlyStreamBgs).length === 0) {
-        entry.streamBg = undefined;
-      } else {
-        const remainingBgs = Object.values(monthlyStreamBgs).filter(Boolean);
-        entry.streamBg = remainingBgs[remainingBgs.length - 1];
-      }
-    }
-
     entry.monthlyNotes = Object.keys(monthlyNotes).length > 0 ? monthlyNotes : undefined;
     entry.monthlyDriveLinks =
       Object.keys(monthlyDriveLinks).length > 0 ? monthlyDriveLinks : undefined;
-    entry.monthlyStreamBgs =
-      Object.keys(monthlyStreamBgs).length > 0 ? monthlyStreamBgs : undefined;
     if (notes !== undefined) {
       entry.notes = notes.trim() || undefined;
     }
@@ -675,18 +616,6 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
         }
       }
 
-      // Merge monthlyStreamBgs without overwriting non-empty backgrounds with empty strings
-      const mergedMonthlyStreamBgs: Record<string, string> = {
-        ...(saved.monthlyStreamBgs || {}),
-      };
-      if (w.monthlyStreamBgs && typeof w.monthlyStreamBgs === 'object') {
-        for (const [m, bgVal] of Object.entries(w.monthlyStreamBgs)) {
-          if (typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined') {
-            mergedMonthlyStreamBgs[m] = bgVal.trim();
-          }
-        }
-      }
-
       const resolvedCustomNote =
         (w.customNote && w.customNote.trim() && w.customNote.trim() !== 'undefined' && w.customNote.trim()) ||
         (saved.customNote && saved.customNote.trim() && saved.customNote.trim() !== 'undefined' && saved.customNote.trim()) ||
@@ -702,11 +631,6 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
         (saved.driveLink && saved.driveLink.trim() && saved.driveLink.trim() !== 'undefined' && saved.driveLink.trim()) ||
         undefined;
 
-      const resolvedStreamBg =
-        (w.streamBg && w.streamBg.trim() && w.streamBg.trim() !== 'undefined' && w.streamBg.trim()) ||
-        (saved.streamBg && saved.streamBg.trim() && saved.streamBg.trim() !== 'undefined' && saved.streamBg.trim()) ||
-        undefined;
-
       return {
         ...w,
         notes: resolvedNotes,
@@ -718,11 +642,6 @@ export function restoreTopicsFromBackup(works: WorkItem[]): WorkItem[] {
           Object.keys(mergedMonthlyDriveLinks).length > 0
             ? mergedMonthlyDriveLinks
             : w.monthlyDriveLinks,
-        streamBg: resolvedStreamBg,
-        monthlyStreamBgs:
-          Object.keys(mergedMonthlyStreamBgs).length > 0
-            ? mergedMonthlyStreamBgs
-            : w.monthlyStreamBgs,
         subItems: activeSub,
         monthlySubItems: mergedMonthly,
       };

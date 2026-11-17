@@ -20,8 +20,6 @@ import {
   UploadCloud,
   ExternalLink,
   Link2,
-  Palette,
-  RotateCcw,
 } from 'lucide-react';
 import { WorkItem, DeliverableSubItem } from '../types';
 import { isSameMonth } from '../utils/monthHelper';
@@ -33,74 +31,6 @@ function normalizeDriveHref(url?: string): string {
   if (!trimmed) return '';
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
-}
-
-export interface StreamBgPreset {
-  id: string;
-  label: string;
-  bg: string;
-  border: string;
-  swatch: string;
-}
-
-const STREAM_BG_PRESETS: StreamBgPreset[] = [
-  { id: 'emerald', label: 'Mint', bg: '#ECFDF5', border: '#A7F3D0', swatch: '#34D399' },
-  { id: 'sky', label: 'Sky', bg: '#F0F9FF', border: '#BAE6FD', swatch: '#38BDF8' },
-  { id: 'indigo', label: 'Indigo', bg: '#EEF2FF', border: '#C7D2FE', swatch: '#818CF8' },
-  { id: 'violet', label: 'Violet', bg: '#F5F3FF', border: '#DDD6FE', swatch: '#A78BFA' },
-  { id: 'rose', label: 'Rose', bg: '#FFF1F2', border: '#FECDD3', swatch: '#FB7185' },
-  { id: 'amber', label: 'Amber', bg: '#FFFBEB', border: '#FDE68A', swatch: '#FBBF24' },
-];
-
-function isHexDark(hex: string): boolean {
-  const clean = hex.replace('#', '').trim();
-  const full =
-    clean.length === 3
-      ? clean
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : clean;
-  if (full.length !== 6) return false;
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  if ([r, g, b].some((n) => Number.isNaN(n))) return false;
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance < 0.52;
-}
-
-function resolveStreamSurface(streamBg?: string): {
-  hasBg: boolean;
-  bgColor?: string;
-  borderColor?: string;
-  swatchColor?: string;
-  isDark: boolean;
-} {
-  const clean = (streamBg || '').trim();
-  if (!clean || clean === 'undefined') {
-    return { hasBg: false, isDark: false };
-  }
-  const preset = STREAM_BG_PRESETS.find((p) => p.id === clean.toLowerCase());
-  if (preset) {
-    return {
-      hasBg: true,
-      bgColor: preset.bg,
-      borderColor: preset.border,
-      swatchColor: preset.swatch,
-      isDark: false,
-    };
-  }
-  if (/^#[0-9a-f]{3,6}$/i.test(clean)) {
-    return {
-      hasBg: true,
-      bgColor: clean,
-      borderColor: isHexDark(clean) ? 'rgba(255,255,255,0.22)' : 'rgba(15,23,42,0.14)',
-      swatchColor: clean,
-      isDark: isHexDark(clean),
-    };
-  }
-  return { hasBg: false, isDark: false };
 }
 
 interface BrandWorksCompletedProps {
@@ -311,9 +241,6 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   const [inlineDriveId, setInlineDriveId] = useState<string | null>(null);
   const [inlineDriveText, setInlineDriveText] = useState('');
 
-  // Inline background theme state per work item
-  const [inlineBgId, setInlineBgId] = useState<string | null>(null);
-
   // Section-level work list note state
   const [isEditingListNote, setIsEditingListNote] = useState(false);
   const [listNoteDraft, setListNoteDraft] = useState(workListNote);
@@ -324,7 +251,6 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
   const [editNotes, setEditNotes] = useState('');
   const [editCustomNote, setEditCustomNote] = useState('');
   const [editDriveLink, setEditDriveLink] = useState('');
-  const [editStreamBg, setEditStreamBg] = useState('');
 
   // Only consider items with count > 0
   const visibleWorks = works.filter((w) => (w.count || 0) > 0);
@@ -407,97 +333,6 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
     }
     setInlineDriveId(null);
     setInlineDriveText('');
-  };
-
-  const toggleInlineBg = (item: WorkItem) => {
-    if (isViewOnly) return;
-    setInlineNoteId(null);
-    setInlineDriveId(null);
-    setInlineBgId((prev) => (prev === item.id ? null : item.id));
-  };
-
-  const applyStreamBg = (item: WorkItem, bgVal: string, closePicker = true) => {
-    if (isViewOnly || !onUpdateWorkItem) return;
-    onUpdateWorkItem(item.id, { streamBg: bgVal });
-    if (closePicker) {
-      setInlineBgId(null);
-    }
-  };
-
-  const renderBgPickerBar = (item: WorkItem) => {
-    const activeVal = (item.streamBg || '').trim().toLowerCase();
-    const customPickerColor =
-      item.streamBg && /^#[0-9a-f]{6}$/i.test(item.streamBg.trim())
-        ? item.streamBg.trim()
-        : '#ECFDF5';
-
-    return (
-      <div className="mb-2.5 p-2.5 rounded-lg bg-white border border-slate-200 shadow-2xs flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1 mr-1">
-            <Palette className="w-3.5 h-3.5 text-[#E11D74]" />
-            <span>Stream background:</span>
-          </span>
-          {STREAM_BG_PRESETS.map((preset) => {
-            const isSelected = activeVal === preset.id;
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => applyStreamBg(item, isSelected ? '' : preset.id)}
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border transition-all cursor-pointer ${
-                  isSelected
-                    ? 'border-[#1D1B48] bg-slate-100 text-slate-900 ring-1 ring-[#1D1B48]/20'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-                title={`Apply ${preset.label} background`}
-              >
-                <span
-                  className="w-3 h-3 rounded-sm border border-black/10 shrink-0"
-                  style={{ backgroundColor: preset.swatch }}
-                />
-                <span>{preset.label}</span>
-              </button>
-            );
-          })}
-
-          <label
-            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer"
-            title="Pick a custom color"
-          >
-            <input
-              type="color"
-              value={customPickerColor}
-              onChange={(e) => applyStreamBg(item, e.target.value, false)}
-              className="w-4 h-4 p-0 border-0 bg-transparent cursor-pointer rounded"
-            />
-            <span>Custom</span>
-          </label>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          {item.streamBg && (
-            <button
-              type="button"
-              onClick={() => applyStreamBg(item, '')}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-              title="Reset to default background"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>Reset</span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setInlineBgId(null)}
-            className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
-            title="Close background picker"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    );
   };
 
   const renderTopicsPanel = (item: WorkItem) => {
@@ -965,25 +800,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               const percentage = totalCount > 0 ? ((item.count / totalCount) * 100).toFixed(1) : '0';
               const isEditingThisNote = !isViewOnly && inlineNoteId === item.id;
               const isEditingThisDrive = !isViewOnly && inlineDriveId === item.id;
-              const isEditingThisBg = !isViewOnly && inlineBgId === item.id;
               const isExpanded = expandedItemIds.has(item.id);
-              const surface = resolveStreamSurface(item.streamBg);
 
               return (
-                <div
-                  key={item.id}
-                  className={`group relative transition-colors ${
-                    surface.hasBg ? 'rounded-xl p-3.5 border shadow-2xs' : ''
-                  }`}
-                  style={
-                    surface.hasBg
-                      ? {
-                          backgroundColor: surface.bgColor,
-                          borderColor: surface.borderColor,
-                        }
-                      : undefined
-                  }
-                >
+                <div key={item.id} className="group relative">
                   <div className="flex items-start gap-4">
                     {/* Icon */}
                     <div
@@ -996,11 +816,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
-                          <h4
-                            className={`text-[15px] font-extrabold tracking-tight ${
-                              surface.isDark ? 'text-white' : 'text-[#1D1B48]'
-                            }`}
-                          >
+                          <h4 className="text-[15px] font-extrabold text-[#1D1B48] tracking-tight">
                             {item.activity}
                           </h4>
 
@@ -1085,8 +901,6 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer shrink-0 ${
                                 item.customNote
                                   ? 'text-amber-800 bg-amber-100/80 hover:bg-amber-200/70 border border-amber-200'
-                                  : surface.isDark
-                                  ? 'text-slate-100 hover:text-white bg-white/10 hover:bg-white/20'
                                   : 'text-slate-500 hover:text-amber-800 bg-slate-100 hover:bg-amber-50'
                               }`}
                               title={item.customNote ? 'Edit note for this deliverable' : 'Add a note to this deliverable'}
@@ -1095,52 +909,15 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               <span>{item.customNote ? 'Note' : '+ Note'}</span>
                             </button>
                           )}
-
-                          {/* Changeable Active Stream Background Button */}
-                          {!isViewOnly && (
-                            <button
-                              type="button"
-                              onClick={() => toggleInlineBg(item)}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer shrink-0 ${
-                                isEditingThisBg || surface.hasBg
-                                  ? 'bg-white text-slate-800 border border-slate-300 shadow-2xs hover:border-slate-400'
-                                  : surface.isDark
-                                  ? 'text-slate-100 hover:text-white bg-white/10 hover:bg-white/20'
-                                  : 'text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200/70'
-                              }`}
-                              title="Change background color for this active stream"
-                            >
-                              {surface.swatchColor ? (
-                                <span
-                                  className="w-2.5 h-2.5 rounded-xs border border-black/15 shrink-0"
-                                  style={{ backgroundColor: surface.swatchColor }}
-                                />
-                              ) : (
-                                <Palette className="w-3 h-3 text-[#E11D74]" />
-                              )}
-                              <span>{surface.hasBg ? 'Bg' : '+ Bg'}</span>
-                            </button>
-                          )}
                         </div>
-                        <span
-                          className={`text-xs font-medium tabular-nums shrink-0 ${
-                            surface.isDark ? 'text-slate-200' : 'text-slate-400'
-                          }`}
-                        >
+                        <span className="text-xs font-medium text-slate-400 tabular-nums shrink-0">
                           {percentage}%
                         </span>
                       </div>
 
-                      <p
-                        className={`text-xs truncate mb-1 ${
-                          surface.isDark ? 'text-slate-200' : 'text-slate-500'
-                        }`}
-                      >
+                      <p className="text-xs text-slate-500 truncate mb-1">
                         {item.notes || `${item.category} deliverables`}
                       </p>
-
-                      {/* Inline Stream Background Picker */}
-                      {isEditingThisBg && renderBgPickerBar(item)}
 
                       {/* Inline Link Editor */}
                       {!isViewOnly && isEditingThisDrive && (
@@ -1253,15 +1030,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                       )}
 
                       {/* Horizontal Progress Bar */}
-                      <div
-                        className={`w-full h-2 rounded-full overflow-hidden ${
-                          surface.hasBg
-                            ? surface.isDark
-                              ? 'bg-white/20'
-                              : 'bg-black/10'
-                            : 'bg-slate-100'
-                        }`}
-                      >
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                         <div
                           className="h-full rounded-full transition-all duration-500"
                           style={{
@@ -1275,10 +1044,10 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     {/* Right Big Count */}
                     <div className="text-right shrink-0 min-w-[44px] pl-2 flex flex-col items-end">
                       <span
-                        className={`text-xl font-extrabold tabular-nums transition-colors ${
-                          surface.isDark ? 'text-white' : 'text-slate-900'
-                        } ${!isViewOnly ? 'cursor-pointer hover:text-[#E11D74]' : 'cursor-default'}`}
-                        title={!isViewOnly ? 'Click to edit count, notes, link, or background' : undefined}
+                        className={`text-xl font-extrabold text-slate-900 tabular-nums transition-colors ${
+                          !isViewOnly ? 'cursor-pointer hover:text-[#E11D74]' : 'cursor-default'
+                        }`}
+                        title={!isViewOnly ? 'Click to edit count, notes, or link' : undefined}
                         onClick={
                           !isViewOnly
                             ? () => {
@@ -1287,7 +1056,6 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                                 setEditNotes(item.notes || '');
                                 setEditCustomNote(item.customNote || '');
                                 setEditDriveLink(item.driveLink || '');
-                                setEditStreamBg(item.streamBg || '');
                               }
                             : undefined
                         }
@@ -1330,28 +1098,15 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                     : w.count;
                 const isEditingThisNote = inlineNoteId === w.id;
                 const isEditingThisDrive = inlineDriveId === w.id;
-                const isEditingThisBg = !isViewOnly && inlineBgId === w.id;
-                const surface = resolveStreamSurface(w.streamBg);
 
                 return (
                   <tr
                     key={w.id}
-                    className={`transition-colors group ${
-                      surface.hasBg ? '' : 'hover:bg-slate-50/80'
-                    }`}
-                    style={
-                      surface.hasBg
-                        ? { backgroundColor: surface.bgColor }
-                        : undefined
-                    }
+                    className="hover:bg-slate-50/80 transition-colors group"
                   >
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span
-                          className={`font-bold ${
-                            surface.isDark ? 'text-white' : 'text-slate-900'
-                          }`}
-                        >
+                        <span className="font-bold text-slate-900">
                           {w.activity}
                         </span>
                         {w.driveLink ? (
@@ -1402,30 +1157,7 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             <span>{w.customNote ? 'Edit note' : '+ Note'}</span>
                           </button>
                         )}
-                        {!isViewOnly && (
-                          <button
-                            type="button"
-                            onClick={() => toggleInlineBg(w)}
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
-                              isEditingThisBg || surface.hasBg
-                                ? 'bg-white text-slate-700 border border-slate-300'
-                                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                            }`}
-                            title="Change stream background"
-                          >
-                            {surface.swatchColor ? (
-                              <span
-                                className="w-2.5 h-2.5 rounded-xs border border-black/15"
-                                style={{ backgroundColor: surface.swatchColor }}
-                              />
-                            ) : (
-                              <Palette className="w-2.5 h-2.5 text-[#E11D74]" />
-                            )}
-                            <span>{surface.hasBg ? 'Bg' : '+ Bg'}</span>
-                          </button>
-                        )}
                       </div>
-                      {isEditingThisBg && <div className="mt-2">{renderBgPickerBar(w)}</div>}
                       {!isViewOnly && isEditingThisDrive && (
                         <div className="mt-1.5 flex items-center gap-1.5 max-w-sm">
                           <input
@@ -1551,29 +1283,14 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
               {visibleWorks.map((w) => {
                 const isEditingThisNote = !isViewOnly && inlineNoteId === w.id;
                 const isEditingThisDrive = !isViewOnly && inlineDriveId === w.id;
-                const isEditingThisBg = !isViewOnly && inlineBgId === w.id;
                 const isExpanded = expandedItemIds.has(w.id);
-                const surface = resolveStreamSurface(w.streamBg);
 
                 return (
                   <React.Fragment key={w.id}>
-                    <tr
-                      className={`transition-colors ${
-                        surface.hasBg ? '' : 'hover:bg-slate-50/80'
-                      }`}
-                      style={
-                        surface.hasBg
-                          ? { backgroundColor: surface.bgColor }
-                          : undefined
-                      }
-                    >
+                    <tr className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`font-extrabold text-sm ${
-                              surface.isDark ? 'text-white' : 'text-[#1D1B48]'
-                            }`}
-                          >
+                          <span className="font-extrabold text-sm text-[#1D1B48]">
                             {w.activity}
                           </span>
                           <button
@@ -1607,15 +1324,8 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                             )}
                           </button>
                         </div>
-                        {isEditingThisBg && <div className="mt-2">{renderBgPickerBar(w)}</div>}
                       </td>
-                      <td
-                        className={`py-3 px-3 ${
-                          surface.isDark ? 'text-slate-200' : 'text-slate-500'
-                        }`}
-                      >
-                        {w.category}
-                      </td>
+                      <td className="py-3 px-3 text-slate-500">{w.category}</td>
                       <td className="py-3 px-3">
                         {!isViewOnly && isEditingThisDrive ? (
                           <div className="flex items-center gap-1.5">
@@ -1736,27 +1446,11 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                           </div>
                         )}
                       </td>
-                      <td
-                        className={`py-3 px-3 text-right font-extrabold text-sm tabular-nums ${
-                          surface.isDark ? 'text-white' : 'text-slate-900'
-                        }`}
-                      >
+                      <td className="py-3 px-3 text-right font-extrabold text-sm text-slate-900 tabular-nums">
                         {w.count}
                       </td>
                       {!isViewOnly && (
                         <td className="py-3 px-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => toggleInlineBg(w)}
-                            className={`p-1 rounded transition-colors cursor-pointer mr-1 ${
-                              surface.hasBg
-                                ? 'bg-white text-slate-700 border border-slate-200'
-                                : 'text-slate-400 hover:text-[#E11D74]'
-                            }`}
-                            title="Change stream background"
-                          >
-                            <Palette className="w-3.5 h-3.5" />
-                          </button>
                           <button
                             onClick={() => {
                               setEditingItem(w);
@@ -1764,10 +1458,9 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                               setEditNotes(w.notes || '');
                               setEditCustomNote(w.customNote || '');
                               setEditDriveLink(w.driveLink || '');
-                              setEditStreamBg(w.streamBg || '');
                             }}
                             className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                            title="Edit count, notes, link & background"
+                            title="Edit count, notes & link"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -1981,58 +1674,6 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                   className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#E11D74] focus:outline-none"
                 />
               </div>
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-slate-700">
-                    Stream Background Color (Optional)
-                  </label>
-                  {editStreamBg && (
-                    <button
-                      type="button"
-                      onClick={() => setEditStreamBg('')}
-                      className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
-                    >
-                      Reset default
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {STREAM_BG_PRESETS.map((preset) => {
-                    const active = editStreamBg.trim().toLowerCase() === preset.id;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => setEditStreamBg(active ? '' : preset.id)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${
-                          active
-                            ? 'border-[#1D1B48] bg-slate-100 text-slate-900'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span
-                          className="w-3 h-3 rounded-xs border border-black/10"
-                          style={{ backgroundColor: preset.swatch }}
-                        />
-                        <span>{preset.label}</span>
-                      </button>
-                    );
-                  })}
-                  <label className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 cursor-pointer">
-                    <input
-                      type="color"
-                      value={
-                        editStreamBg && /^#[0-9a-f]{6}$/i.test(editStreamBg.trim())
-                          ? editStreamBg.trim()
-                          : '#ECFDF5'
-                      }
-                      onChange={(e) => setEditStreamBg(e.target.value)}
-                      className="w-4 h-4 p-0 border-0 bg-transparent cursor-pointer"
-                    />
-                    <span>Custom</span>
-                  </label>
-                </div>
-              </div>
             </div>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -2051,7 +1692,6 @@ export const BrandWorksCompleted: React.FC<BrandWorksCompletedProps> = ({
                       notes: editNotes,
                       customNote: editCustomNote.trim(),
                       driveLink: editDriveLink.trim(),
-                      streamBg: editStreamBg.trim(),
                     });
                   }
                   setEditingItem(null);

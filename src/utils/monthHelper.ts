@@ -395,16 +395,6 @@ export function getWorksForSelectedMonth(
           }
         }
 
-        let resolvedAllStreamBg = w.streamBg;
-        if (!resolvedAllStreamBg && w.monthlyStreamBgs) {
-          const nonEmptyBgs = Object.values(w.monthlyStreamBgs).filter(
-            (b) => typeof b === 'string' && b.trim().length > 0 && b.trim() !== 'undefined'
-          );
-          if (nonEmptyBgs.length > 0) {
-            resolvedAllStreamBg = nonEmptyBgs[nonEmptyBgs.length - 1];
-          }
-        }
-
         map.set(key, {
           ...w,
           id: `all-${w.id}`,
@@ -412,7 +402,6 @@ export function getWorksForSelectedMonth(
           month: 'All Months',
           customNote: resolvedAllNote,
           driveLink: resolvedAllDriveLink,
-          streamBg: resolvedAllStreamBg,
           monthlyBreakdown: breakdown,
           subItems: deduplicateSubItems(allSub),
         });
@@ -466,21 +455,6 @@ export function getWorksForSelectedMonth(
             );
             if (nonEmptyLinks.length > 0) {
               existing.driveLink = nonEmptyLinks[nonEmptyLinks.length - 1].trim();
-            }
-          }
-        }
-
-        if (!existing.streamBg && w.streamBg && w.streamBg !== 'undefined') {
-          existing.streamBg = w.streamBg.trim();
-        }
-        if (w.monthlyStreamBgs) {
-          existing.monthlyStreamBgs = { ...(existing.monthlyStreamBgs || {}), ...w.monthlyStreamBgs };
-          if (!existing.streamBg) {
-            const nonEmptyBgs = Object.values(existing.monthlyStreamBgs).filter(
-              (b) => typeof b === 'string' && b.trim().length > 0 && b.trim() !== 'undefined'
-            );
-            if (nonEmptyBgs.length > 0) {
-              existing.streamBg = nonEmptyBgs[nonEmptyBgs.length - 1].trim();
             }
           }
         }
@@ -570,25 +544,6 @@ export function getWorksForSelectedMonth(
         resolvedDriveLink = w.driveLink.trim();
       }
 
-      // Month-specific Stream Background resolution: check monthlyStreamBgs first, and fall back to root streamBg
-      let resolvedStreamBg: string | undefined = undefined;
-      let foundMonthlyBgKey = false;
-      if (w.monthlyStreamBgs && typeof w.monthlyStreamBgs === 'object') {
-        for (const [m, bgVal] of Object.entries(w.monthlyStreamBgs)) {
-          if (isSameMonth(m, selectedMonth)) {
-            foundMonthlyBgKey = true;
-            resolvedStreamBg =
-              bgVal && typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined'
-                ? bgVal.trim()
-                : undefined;
-            break;
-          }
-        }
-      }
-      if (!foundMonthlyBgKey && w.streamBg && w.streamBg.trim() && w.streamBg.trim() !== 'undefined') {
-        resolvedStreamBg = w.streamBg.trim();
-      }
-
       // Month-specific sub-items / topics resolution
       let resolvedSubItems: DeliverableSubItem[] = [];
       if (w.monthlySubItems && Object.keys(w.monthlySubItems).length > 0) {
@@ -611,7 +566,6 @@ export function getWorksForSelectedMonth(
         month: selectedMonth,
         customNote: resolvedCustomNote,
         driveLink: resolvedDriveLink,
-        streamBg: resolvedStreamBg,
         subItems: deduplicateSubItems(resolvedSubItems),
       });
     }

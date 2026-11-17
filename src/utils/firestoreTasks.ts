@@ -293,20 +293,6 @@ export async function saveSharedDashboardData(dashboardData: DashboardData): Pro
           item.monthlyDriveLinks = cleanMLinks;
         }
       }
-      if (w.streamBg && w.streamBg !== 'undefined' && w.streamBg.trim()) {
-        item.streamBg = w.streamBg.trim();
-      }
-      if (w.monthlyStreamBgs && typeof w.monthlyStreamBgs === 'object') {
-        const cleanMBgs: Record<string, string> = {};
-        for (const [m, bgVal] of Object.entries(w.monthlyStreamBgs)) {
-          if (bgVal && bgVal !== 'undefined' && typeof bgVal === 'string' && bgVal.trim()) {
-            cleanMBgs[m] = bgVal.trim();
-          }
-        }
-        if (Object.keys(cleanMBgs).length > 0) {
-          item.monthlyStreamBgs = cleanMBgs;
-        }
-      }
       if (w.highlight !== undefined) item.highlight = w.highlight;
       if (w.month !== undefined) item.month = w.month;
       if (w.monthlyBreakdown !== undefined) item.monthlyBreakdown = w.monthlyBreakdown;
@@ -575,8 +561,6 @@ export interface StoredDeliverableNote {
   notes?: string;
   driveLink?: string;
   monthlyDriveLinks?: Record<string, string>;
-  streamBg?: string;
-  monthlyStreamBgs?: Record<string, string>;
   updatedAt: string;
 }
 

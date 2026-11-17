@@ -463,38 +463,6 @@ export default function App() {
       const resolvedDriveLink =
         cleanVaultDriveLink || cleanWDriveLink || cleanMatchDriveLink || undefined;
 
-      // Merge monthlyStreamBgs (vaultNote takes top precedence, then w, then current item)
-      const mergedMonthlyStreamBgs: Record<string, string> = {};
-      for (const bgSource of [
-        match?.monthlyStreamBgs,
-        w.monthlyStreamBgs,
-        vaultNote?.monthlyStreamBgs,
-      ]) {
-        if (bgSource && typeof bgSource === 'object') {
-          for (const [m, bgVal] of Object.entries(bgSource)) {
-            if (typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined') {
-              mergedMonthlyStreamBgs[m] = bgVal.trim();
-            }
-          }
-        }
-      }
-
-      const cleanVaultStreamBg =
-        vaultNote?.streamBg !== undefined
-          ? vaultNote.streamBg.trim() && vaultNote.streamBg.trim() !== 'undefined'
-            ? vaultNote.streamBg.trim()
-            : undefined
-          : undefined;
-      const cleanWStreamBg =
-        w.streamBg && w.streamBg.trim() !== 'undefined' ? w.streamBg.trim() : undefined;
-      const cleanMatchStreamBg =
-        match?.streamBg && match.streamBg.trim() !== 'undefined' ? match.streamBg.trim() : undefined;
-
-      const resolvedStreamBg =
-        vaultNote?.streamBg !== undefined
-          ? cleanVaultStreamBg
-          : cleanWStreamBg || cleanMatchStreamBg || undefined;
-
       let activeSub: DeliverableSubItem[] = [];
       if (w.month && mergedMonthly[w.month] && mergedMonthly[w.month].length > 0) {
         activeSub = deduplicateSubItems(mergedMonthly[w.month]);
@@ -515,9 +483,6 @@ export default function App() {
         driveLink: resolvedDriveLink,
         monthlyDriveLinks:
           Object.keys(mergedMonthlyDriveLinks).length > 0 ? mergedMonthlyDriveLinks : undefined,
-        streamBg: resolvedStreamBg,
-        monthlyStreamBgs:
-          Object.keys(mergedMonthlyStreamBgs).length > 0 ? mergedMonthlyStreamBgs : undefined,
         subItems: activeSub,
         monthlySubItems: mergedMonthly,
       };
@@ -917,36 +882,6 @@ export default function App() {
               hasChanges = true;
             }
 
-            const mergedMonthlyStreamBgs: Record<string, string> = {
-              ...(w.monthlyStreamBgs || {}),
-            };
-            if (vaultEntry.monthlyStreamBgs && typeof vaultEntry.monthlyStreamBgs === 'object') {
-              for (const [m, bgVal] of Object.entries(vaultEntry.monthlyStreamBgs)) {
-                if (typeof bgVal === 'string' && bgVal.trim() && bgVal.trim() !== 'undefined') {
-                  if (mergedMonthlyStreamBgs[m] !== bgVal.trim()) {
-                    mergedMonthlyStreamBgs[m] = bgVal.trim();
-                    hasChanges = true;
-                  }
-                }
-              }
-            }
-
-            const cleanVaultStreamBg =
-              vaultEntry.streamBg !== undefined
-                ? vaultEntry.streamBg.trim() && vaultEntry.streamBg.trim() !== 'undefined'
-                  ? vaultEntry.streamBg.trim()
-                  : undefined
-                : undefined;
-            const cleanWStreamBg =
-              w.streamBg && w.streamBg.trim() !== 'undefined'
-                ? w.streamBg.trim()
-                : undefined;
-            const nextStreamBg =
-              vaultEntry.streamBg !== undefined ? cleanVaultStreamBg : cleanWStreamBg;
-            if (nextStreamBg !== w.streamBg) {
-              hasChanges = true;
-            }
-
             return {
               ...w,
               notes: nextNotes,
@@ -958,11 +893,6 @@ export default function App() {
                 Object.keys(mergedMonthlyDriveLinks).length > 0
                   ? mergedMonthlyDriveLinks
                   : w.monthlyDriveLinks,
-              streamBg: nextStreamBg,
-              monthlyStreamBgs:
-                Object.keys(mergedMonthlyStreamBgs).length > 0
-                  ? mergedMonthlyStreamBgs
-                  : w.monthlyStreamBgs,
             };
           });
 
@@ -1086,16 +1016,14 @@ export default function App() {
       setIsSavedInStorage(true);
       setSavedMeta(loaded.meta);
 
-      // Push any locally saved custom notes, links, or stream backgrounds to the permanent Firestore deliverable_notes vault
+      // Push any locally saved custom notes or links to the permanent Firestore deliverable_notes vault
       const localNotesToPush: Record<string, StoredDeliverableNote> = {};
       for (const w of restoredWorks) {
         if (
           w.customNote ||
           (w.monthlyNotes && Object.keys(w.monthlyNotes).length > 0) ||
           w.driveLink ||
-          (w.monthlyDriveLinks && Object.keys(w.monthlyDriveLinks).length > 0) ||
-          w.streamBg ||
-          (w.monthlyStreamBgs && Object.keys(w.monthlyStreamBgs).length > 0)
+          (w.monthlyDriveLinks && Object.keys(w.monthlyDriveLinks).length > 0)
         ) {
           localNotesToPush[w.activity.trim().toLowerCase()] = {
             activity: w.activity,
@@ -1104,8 +1032,6 @@ export default function App() {
             notes: w.notes,
             driveLink: w.driveLink,
             monthlyDriveLinks: w.monthlyDriveLinks,
-            streamBg: w.streamBg,
-            monthlyStreamBgs: w.monthlyStreamBgs,
             updatedAt: new Date().toISOString(),
           };
         }
@@ -1279,43 +1205,14 @@ export default function App() {
             }
           }
 
-          // Scope deliverable Stream Background to selectedMonth and keep root streamBg in sync
-          const updatedMonthlyStreamBgs = w.monthlyStreamBgs ? { ...w.monthlyStreamBgs } : {};
-          if (updates.streamBg !== undefined) {
-            const trimmedBg = (updates.streamBg || '').trim();
-            if (trimmedBg && trimmedBg !== 'undefined') {
-              updatedMonthlyStreamBgs[targetMonth] = trimmedBg;
-            } else {
-              delete updatedMonthlyStreamBgs[targetMonth];
-            }
-          }
-
-          let rootStreamBg = w.streamBg;
-          if (updates.streamBg !== undefined) {
-            const trimmedBg = (updates.streamBg || '').trim();
-            if (trimmedBg && trimmedBg !== 'undefined') {
-              rootStreamBg = trimmedBg;
-            } else if (Object.keys(updatedMonthlyStreamBgs).length === 0) {
-              rootStreamBg = undefined;
-            } else {
-              const remainingBgs = Object.values(updatedMonthlyStreamBgs).filter(
-                (v) => v && v.trim() && v.trim() !== 'undefined'
-              );
-              rootStreamBg =
-                remainingBgs.length > 0 ? remainingBgs[remainingBgs.length - 1].trim() : undefined;
-            }
-          }
-
           const nextWork: WorkItem = {
             ...w,
             ...updates,
             customNote: rootCustomNote,
             driveLink: rootDriveLink,
-            streamBg: rootStreamBg,
             monthlyBreakdown: updatedBreakdown,
             monthlyNotes: updatedMonthlyNotes,
             monthlyDriveLinks: updatedMonthlyDriveLinks,
-            monthlyStreamBgs: updatedMonthlyStreamBgs,
           };
           updatedTargetWork = nextWork;
           return nextWork;
@@ -1331,8 +1228,7 @@ export default function App() {
           targetMonth,
           updates.customNote,
           updates.notes,
-          updates.driveLink,
-          updates.streamBg
+          updates.driveLink
         );
         const noteEntry: StoredDeliverableNote = {
           activity: tw.activity,
@@ -1343,9 +1239,6 @@ export default function App() {
           driveLink:
             tw.driveLink && tw.driveLink.trim() !== 'undefined' ? tw.driveLink.trim() : '',
           monthlyDriveLinks: tw.monthlyDriveLinks || {},
-          streamBg:
-            tw.streamBg && tw.streamBg.trim() !== 'undefined' ? tw.streamBg.trim() : '',
-          monthlyStreamBgs: tw.monthlyStreamBgs || {},
           updatedAt: new Date().toISOString(),
         };
         cloudDeliverableNotesRef.current.itemNotes[actKey] = noteEntry;
