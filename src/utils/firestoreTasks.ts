@@ -2,6 +2,10 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
   getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  Firestore,
   collection,
   doc,
   getDocFromServer,
@@ -19,10 +23,28 @@ import { isTaskDeleted, markTaskAsDeleted } from './taskStorage';
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-export const db =
+const targetDatabaseId =
   firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-    : getFirestore(app);
+    ? firebaseConfig.firestoreDatabaseId
+    : undefined;
+
+function createFirestoreInstance(): Firestore {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      },
+      targetDatabaseId
+    );
+  } catch {
+    return targetDatabaseId ? getFirestore(app, targetDatabaseId) : getFirestore(app);
+  }
+}
+
+export const db = createFirestoreInstance();
 
 export enum OperationType {
   CREATE = 'create',

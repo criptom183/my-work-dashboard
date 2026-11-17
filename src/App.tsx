@@ -51,6 +51,7 @@ import {
 } from './utils/taskStorage';
 import {
   fetchAndParseGoogleSheet,
+  intervalToMilliseconds,
 } from './utils/googleSheetSync';
 import { fetchTasksPubliclyFromGoogleSheet } from './utils/googleSheetsTasksSync';
 import {
@@ -82,15 +83,70 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 
+function buildWorksCountSignature(works: WorkItem[]): string {
+  return (works || [])
+    .map((w) => `${w.activity.trim().toLowerCase()}:${w.count}:${JSON.stringify(w.monthlyBreakdown || {})}`)
+    .sort()
+    .join('|');
+}
+
+function getInitialDashboardSnapshot(): {
+  data: DashboardData;
+  meta: StorageMeta | null;
+  fromStorage: boolean;
+} {
+  try {
+    const loaded = loadDashboardFromStorage();
+    if (loaded?.data?.worksCompleted?.length) {
+      const restoredWorks = restoreTopicsFromBackup(loaded.data.worksCompleted);
+      return {
+        data: {
+          ...loaded.data,
+          sheetSourceUrl: loaded.data.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL,
+          worksCompleted: restoredWorks,
+        },
+        meta: loaded.meta,
+        fromStorage: true,
+      };
+    }
+  } catch {
+    // Fallback cleanly to initialDashboardData
+  }
+  const restoredDefaultWorks = restoreTopicsFromBackup(initialDashboardData.worksCompleted);
+  return {
+    data: {
+      ...initialDashboardData,
+      sheetSourceUrl: DEFAULT_GOOGLE_SHEET_URL,
+      worksCompleted: restoredDefaultWorks,
+    },
+    meta: null,
+    fromStorage: false,
+  };
+}
+
 export default function App() {
-  const [data, setData] = useState<DashboardData>(initialDashboardData);
+  const initialSnapshotRef = useRef<ReturnType<typeof getInitialDashboardSnapshot> | null>(null);
+  if (!initialSnapshotRef.current) {
+    initialSnapshotRef.current = getInitialDashboardSnapshot();
+  }
+
+  const [data, setData] = useState<DashboardData>(() => initialSnapshotRef.current!.data);
   const [selectedMonth, setSelectedMonth] = useState<string>(
-    initialDashboardData.selectedMonth || 'Oct 2026'
+    () =>
+      initialSnapshotRef.current!.data.selectedMonth ||
+      initialSnapshotRef.current!.data.availableMonths?.[
+        initialSnapshotRef.current!.data.availableMonths.length - 1
+      ] ||
+      'Oct 2026'
   );
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSavedInStorage, setIsSavedInStorage] = useState(false);
-  const [savedMeta, setSavedMeta] = useState<StorageMeta | null>(null);
+  const [isSavedInStorage, setIsSavedInStorage] = useState(
+    () => initialSnapshotRef.current!.fromStorage
+  );
+  const [savedMeta, setSavedMeta] = useState<StorageMeta | null>(
+    () => initialSnapshotRef.current!.meta
+  );
   const [isSheetModalOpen, setIsSheetModalOpen] = useState(false);
   const [isBannerDismissed, setIsBannerDismissed] = useState(false);
   const [syncSettings, setSyncSettings] = useState<SyncSettings>(loadSyncSettingsFromStorage());
@@ -474,9 +530,13 @@ export default function App() {
     saveSyncSettingsToStorage(newSettings);
   }, []);
 
+  const isSyncInFlightRef = useRef(false);
+  const lastSyncStartedAtRef = useRef(0);
+
   // Core Google Sheet sync function
   const handleSyncGoogleSheet = useCallback(
     async (isSilent = false, overrideUrl?: string) => {
+      if (isSyncInFlightRef.current) return;
       let currentUrl = overrideUrl || dataRef.current.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL;
       if (!currentUrl) return;
 
@@ -485,6 +545,8 @@ export default function App() {
         currentUrl = DEFAULT_GOOGLE_SHEET_URL;
       }
 
+      isSyncInFlightRef.current = true;
+      lastSyncStartedAtRef.current = Date.now();
       if (!isSilent) {
         setIsSyncing(true);
       }
@@ -510,7 +572,6 @@ export default function App() {
 
         // Authoritative list comes strictly from the synced Google Sheet (no leftover rows from old sheets)
         const mergedWorks = restoreTopicsFromBackup(updatedFreshWorks);
-        saveTopicsBackup(mergedWorks);
 
         const mergedNotes = {
           ...(cloudDeliverableNotesRef.current.workListNotes || {}),
@@ -526,12 +587,22 @@ export default function App() {
           activeTaskUpdate: activeTaskUpdateRef.current,
         };
 
+        const prevCountsSig = buildWorksCountSignature(dataRef.current.worksCompleted || []);
+        const nextCountsSig = buildWorksCountSignature(mergedWorks);
+        const countsChanged = prevCountsSig !== nextCountsSig;
+
+        // Paint updated counts & deliverables immediately before running secondary storage/tasks work
         setData(mergedData);
 
-        // Broadcast to Cloud Firestore ONLY if triggered manually by an editor (never on silent background load)
-        if (!isSilent && !isViewOnlyRef.current) {
+        setTimeout(() => {
+          saveTopicsBackup(mergedWorks);
+          saveDashboardToStorage(mergedData);
+        }, 0);
+
+        // Broadcast to Cloud Firestore if triggered manually OR when silent sync detected updated item counts
+        if (!isViewOnlyRef.current && (!isSilent || countsChanged)) {
           saveSharedDashboardData(mergedData).catch(console.warn);
-          if (currentUrl) {
+          if (!isSilent && currentUrl) {
             saveSharedSheetUrl(currentUrl).catch(console.warn);
           }
         }
@@ -540,15 +611,16 @@ export default function App() {
           const validTasks = freshData.tasks.filter((t) => !isTaskDeleted(t.id));
           handleUpdateTasks(validTasks);
         } else {
-          try {
-            const publicTasks = await fetchTasksPubliclyFromGoogleSheet(currentUrl);
-            if (publicTasks.length > 0) {
-              const validTasks = publicTasks.filter((t) => !isTaskDeleted(t.id));
-              handleUpdateTasks(validTasks);
-            }
-          } catch {
-            // Continue if Tasks tab not present
-          }
+          fetchTasksPubliclyFromGoogleSheet(currentUrl)
+            .then((publicTasks) => {
+              if (publicTasks.length > 0) {
+                const validTasks = publicTasks.filter((t) => !isTaskDeleted(t.id));
+                handleUpdateTasks(validTasks);
+              }
+            })
+            .catch(() => {
+              // Continue if Tasks tab not present
+            });
         }
 
         const nowFormatted = new Date().toLocaleTimeString([], {
@@ -563,7 +635,6 @@ export default function App() {
         };
         handleUpdateSyncSettings(updatedSettings);
 
-        saveDashboardToStorage(mergedData);
         setIsSavedInStorage(true);
         setSavedMeta({
           savedAt: new Date().toLocaleString(undefined, {
@@ -584,6 +655,7 @@ export default function App() {
           showToast(`Sync failed: ${err.message || 'Please check sheet sharing permissions.'}`, 'error');
         }
       } finally {
+        isSyncInFlightRef.current = false;
         if (!isSilent) {
           setIsSyncing(false);
         }
@@ -1048,10 +1120,7 @@ export default function App() {
       }
 
       if (completeData.sheetSourceUrl && syncSettingsRef.current.autoSync) {
-        const timer = setTimeout(() => {
-          handleSyncGoogleSheet(true, completeData.sheetSourceUrl);
-        }, 1200);
-        return () => clearTimeout(timer);
+        handleSyncGoogleSheet(true, completeData.sheetSourceUrl);
       }
     } else {
       const initialRestored: DashboardData = {
@@ -1063,13 +1132,41 @@ export default function App() {
       saveDashboardToStorage(initialRestored);
       saveTopicsBackup(initialRestored.worksCompleted);
       if (syncSettingsRef.current.autoSync) {
-        const timer = setTimeout(() => {
-          handleSyncGoogleSheet(true, DEFAULT_GOOGLE_SHEET_URL);
-        }, 1200);
-        return () => clearTimeout(timer);
+        handleSyncGoogleSheet(true, DEFAULT_GOOGLE_SHEET_URL);
       }
     }
   }, [enrichWorkWithSavedNotesAndDetails, handleSyncGoogleSheet]);
+
+  // Automatic background polling + instant tab-focus refresh when autoSync is enabled
+  useEffect(() => {
+    if (!syncSettings.autoSync) return;
+    const sheetUrl = dataRef.current.sheetSourceUrl || DEFAULT_GOOGLE_SHEET_URL;
+    const ms = intervalToMilliseconds(syncSettings.interval);
+
+    const intervalId =
+      ms > 0
+        ? window.setInterval(() => {
+            if (document.visibilityState === 'visible') {
+              handleSyncGoogleSheet(true, dataRef.current.sheetSourceUrl || sheetUrl);
+            }
+          }, ms)
+        : undefined;
+
+    const triggerFocusSync = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastSyncStartedAtRef.current > 4000) {
+        handleSyncGoogleSheet(true, dataRef.current.sheetSourceUrl || sheetUrl);
+      }
+    };
+
+    document.addEventListener('visibilitychange', triggerFocusSync);
+    window.addEventListener('focus', triggerFocusSync);
+
+    return () => {
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', triggerFocusSync);
+      window.removeEventListener('focus', triggerFocusSync);
+    };
+  }, [syncSettings.autoSync, syncSettings.interval, handleSyncGoogleSheet]);
 
   const handleSaveToLocalMemory = () => {
     const payloadData: DashboardData = {
