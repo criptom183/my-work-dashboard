@@ -849,7 +849,16 @@ export function loadActiveTaskUpdateFromStorage(): ActiveTaskUpdate | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.tasks === 'string' && typeof parsed.date === 'string') {
-      return parsed as ActiveTaskUpdate;
+      return {
+        date: parsed.date,
+        tasks: parsed.tasks,
+        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
+        completedIndices: Array.isArray(parsed.completedIndices)
+          ? parsed.completedIndices.filter(
+              (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
+            )
+          : undefined,
+      };
     }
   } catch (e) {
     console.error('Failed to load active task update from localStorage:', e);

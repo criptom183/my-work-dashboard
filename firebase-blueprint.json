@@ -25,7 +25,11 @@
       "properties": {
         "date": { "type": "string", "maxLength": 40 },
         "tasks": { "type": "string", "maxLength": 5000 },
-        "updatedAt": { "type": "string", "maxLength": 50 }
+        "updatedAt": { "type": "string", "maxLength": 50 },
+        "completedIndices": {
+          "type": "array",
+          "description": "Zero-based indices of completed task lines in the active tasks list"
+        }
       },
       "required": ["date", "tasks", "updatedAt"]
     },

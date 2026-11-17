@@ -1425,19 +1425,40 @@ export default function App() {
 
   const handleSaveActiveTaskUpdate = (date: string, tasksText: string) => {
     if (isViewOnly) return;
+    const prev = activeTaskUpdateRef.current;
+    const prevLines = prev?.tasks
+      ? prev.tasks
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+      : [];
+    const prevDoneSet = new Set(prev?.completedIndices || []);
+    const completedLineTexts = new Set(
+      prevLines.filter((_, idx) => prevDoneSet.has(idx)).map((l) => l.toLowerCase())
+    );
+    const nextLines = tasksText
+      .trim()
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const nextCompletedIndices = nextLines
+      .map((l, idx) => (completedLineTexts.has(l.toLowerCase()) ? idx : -1))
+      .filter((idx) => idx >= 0);
+
     const nextUpdate: ActiveTaskUpdate = {
       date: date.trim(),
       tasks: tasksText.trim(),
       updatedAt: new Date().toISOString(),
+      completedIndices: nextCompletedIndices,
     };
     setActiveTaskUpdate(nextUpdate);
     activeTaskUpdateRef.current = nextUpdate;
     saveActiveTaskUpdateToStorage(nextUpdate);
     saveActiveTaskUpdateToFirestore(nextUpdate).catch(console.warn);
 
-    setData((prev) => {
+    setData((prevData) => {
       const updatedDashboard: DashboardData = {
-        ...prev,
+        ...prevData,
         activeTaskUpdate: nextUpdate,
       };
       saveDashboardToStorage(updatedDashboard);
@@ -1446,6 +1467,43 @@ export default function App() {
     });
     setIsSavedInStorage(true);
     showToast('Active tasks saved! They will remain visible until the next update.');
+  };
+
+  const handleToggleActiveTaskCompleted = (lineIndex: number) => {
+    if (isViewOnly) return;
+    const current = activeTaskUpdateRef.current;
+    if (!current || !current.tasks) return;
+
+    const currentSet = new Set(current.completedIndices || []);
+    if (currentSet.has(lineIndex)) {
+      currentSet.delete(lineIndex);
+    } else {
+      currentSet.add(lineIndex);
+    }
+    const nextCompletedIndices = Array.from(currentSet)
+      .filter((n) => Number.isInteger(n) && n >= 0)
+      .sort((a, b) => a - b);
+
+    const nextUpdate: ActiveTaskUpdate = {
+      ...current,
+      completedIndices: nextCompletedIndices,
+    };
+
+    setActiveTaskUpdate(nextUpdate);
+    activeTaskUpdateRef.current = nextUpdate;
+    saveActiveTaskUpdateToStorage(nextUpdate);
+    saveActiveTaskUpdateToFirestore(nextUpdate).catch(console.warn);
+
+    setData((prevData) => {
+      const updatedDashboard: DashboardData = {
+        ...prevData,
+        activeTaskUpdate: nextUpdate,
+      };
+      saveDashboardToStorage(updatedDashboard);
+      saveSharedDashboardData(updatedDashboard).catch(console.warn);
+      return updatedDashboard;
+    });
+    setIsSavedInStorage(true);
   };
 
   const handleClearActiveTaskUpdate = () => {
@@ -2549,6 +2607,7 @@ export default function App() {
               <ActiveTasksSection
                 activeTaskUpdate={activeTaskUpdate}
                 onSaveActiveTaskUpdate={handleSaveActiveTaskUpdate}
+                onToggleTaskCompleted={handleToggleActiveTaskCompleted}
                 onClearActiveTaskUpdate={handleClearActiveTaskUpdate}
                 isViewOnly={isViewOnly}
               />

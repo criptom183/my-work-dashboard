@@ -33,6 +33,7 @@ export interface ActiveTaskUpdate {
   date: string;
   tasks: string;
   updatedAt: string;
+  completedIndices?: number[];
 }
 
 export interface SuggestionItem {

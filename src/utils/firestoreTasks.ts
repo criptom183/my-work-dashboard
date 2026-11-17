@@ -372,7 +372,17 @@ export function subscribeToSharedDashboardData(
                 raw.activeTaskUpdate &&
                 typeof raw.activeTaskUpdate === 'object' &&
                 typeof raw.activeTaskUpdate.tasks === 'string'
-                  ? (raw.activeTaskUpdate as ActiveTaskUpdate)
+                  ? {
+                      date: String(raw.activeTaskUpdate.date || ''),
+                      tasks: raw.activeTaskUpdate.tasks,
+                      updatedAt: String(raw.activeTaskUpdate.updatedAt || ''),
+                      completedIndices: Array.isArray(raw.activeTaskUpdate.completedIndices)
+                        ? raw.activeTaskUpdate.completedIndices.filter(
+                            (n: unknown): n is number =>
+                              typeof n === 'number' && Number.isInteger(n) && n >= 0
+                          )
+                        : undefined,
+                    }
                   : raw.activeTaskUpdate === null
                   ? null
                   : undefined,
@@ -699,7 +709,17 @@ export function subscribeToActiveTaskUpdate(
             typeof raw.activeTaskUpdate.tasks === 'string' &&
             typeof raw.activeTaskUpdate.date === 'string'
           ) {
-            onUpdate(raw.activeTaskUpdate as ActiveTaskUpdate);
+            onUpdate({
+              date: raw.activeTaskUpdate.date,
+              tasks: raw.activeTaskUpdate.tasks,
+              updatedAt: String(raw.activeTaskUpdate.updatedAt || ''),
+              completedIndices: Array.isArray(raw.activeTaskUpdate.completedIndices)
+                ? raw.activeTaskUpdate.completedIndices.filter(
+                    (n: unknown): n is number =>
+                      typeof n === 'number' && Number.isInteger(n) && n >= 0
+                  )
+                : undefined,
+            });
           }
         }
       },

@@ -5,6 +5,7 @@ import { ActiveTaskUpdate } from '../types';
 interface ActiveTasksSectionProps {
   activeTaskUpdate: ActiveTaskUpdate | null;
   onSaveActiveTaskUpdate: (date: string, tasks: string) => void;
+  onToggleTaskCompleted?: (lineIndex: number) => void;
   onClearActiveTaskUpdate?: () => void;
   isViewOnly?: boolean;
 }
@@ -57,6 +58,7 @@ function formatUpdatedTimestamp(iso?: string): string {
 export const ActiveTasksSection: React.FC<ActiveTasksSectionProps> = ({
   activeTaskUpdate,
   onSaveActiveTaskUpdate,
+  onToggleTaskCompleted,
   onClearActiveTaskUpdate,
   isViewOnly = false,
 }) => {
@@ -90,6 +92,16 @@ export const ActiveTasksSection: React.FC<ActiveTasksSectionProps> = ({
     setTasksInput(activeTaskUpdate.tasks || '');
   };
 
+  const taskLines = activeTaskUpdate?.tasks
+    ? activeTaskUpdate.tasks
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+    : [];
+  const completedSet = new Set(activeTaskUpdate?.completedIndices || []);
+  const completedCount = taskLines.filter((_, idx) => completedSet.has(idx)).length;
+  const allCompleted = taskLines.length > 0 && completedCount === taskLines.length;
+
   return (
     <section
       aria-label="Active tasks"
@@ -114,12 +126,25 @@ export const ActiveTasksSection: React.FC<ActiveTasksSectionProps> = ({
       </div>
 
       {/* Persisted Current Active Tasks Display */}
-      {activeTaskUpdate && activeTaskUpdate.tasks ? (
+      {activeTaskUpdate && taskLines.length > 0 ? (
         <div className="p-3.5 rounded-xl bg-slate-50/90 border border-slate-200/80 mb-4">
-          <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-200/70">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#1D1B48] tabular-nums">
-              <Calendar className="w-3.5 h-3.5 text-[#E11D74] shrink-0" />
-              <span>{formatReadableDate(activeTaskUpdate.date)}</span>
+          <div className="flex items-center justify-between gap-2 pb-2 mb-2.5 border-b border-slate-200/70">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1D1B48] tabular-nums">
+                <Calendar className="w-3.5 h-3.5 text-[#E11D74] shrink-0" />
+                <span>{formatReadableDate(activeTaskUpdate.date)}</span>
+              </div>
+              <span
+                className={`text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums ${
+                  allCompleted
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : completedCount > 0
+                    ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                    : 'bg-white text-slate-500 border border-slate-200'
+                }`}
+              >
+                {completedCount}/{taskLines.length} done
+              </span>
             </div>
 
             {!isViewOnly && (
@@ -147,9 +172,56 @@ export const ActiveTasksSection: React.FC<ActiveTasksSectionProps> = ({
             )}
           </div>
 
-          <div className="text-xs sm:text-[13px] text-slate-800 font-medium leading-relaxed whitespace-pre-line break-words">
-            {activeTaskUpdate.tasks}
-          </div>
+          <ul className="space-y-1.5">
+            {taskLines.map((line, idx) => {
+              const isDone = completedSet.has(idx);
+              const canToggle = !isViewOnly && Boolean(onToggleTaskCompleted);
+
+              return (
+                <li key={`${idx}-${line}`}>
+                  <button
+                    type="button"
+                    disabled={!canToggle}
+                    onClick={() => {
+                      if (canToggle) {
+                        onToggleTaskCompleted?.(idx);
+                      }
+                    }}
+                    aria-pressed={isDone}
+                    aria-label={
+                      isDone ? `Mark "${line}" as not completed` : `Mark "${line}" as completed`
+                    }
+                    className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border transition-colors ${
+                      isDone
+                        ? 'bg-emerald-50/75 border-emerald-200/80'
+                        : 'bg-white border-slate-200/70'
+                    } ${
+                      canToggle
+                        ? 'hover:border-emerald-300 cursor-pointer'
+                        : 'cursor-default'
+                    }`}
+                  >
+                    <span
+                      className={`w-4.5 h-4.5 rounded-md flex items-center justify-center shrink-0 mt-0.5 border transition-all ${
+                        isDone
+                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-2xs'
+                          : 'bg-white border-slate-300 text-transparent'
+                      }`}
+                    >
+                      <Check className="w-3 h-3 stroke-[2.75]" />
+                    </span>
+                    <span
+                      className={`text-xs sm:text-[13px] font-medium leading-relaxed break-words flex-1 ${
+                        isDone ? 'line-through text-slate-400' : 'text-slate-800'
+                      }`}
+                    >
+                      {line}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       ) : (
         <div className="px-3.5 py-3 rounded-xl bg-slate-50/70 border border-dashed border-slate-200 text-xs text-slate-400 mb-4">
@@ -182,7 +254,7 @@ export const ActiveTasksSection: React.FC<ActiveTasksSectionProps> = ({
               htmlFor="active-tasks-input"
               className="block text-[11px] font-semibold text-slate-600 mb-1"
             >
-              Tasks
+              Tasks <span className="font-normal text-slate-400">(one per line for tick marks)</span>
             </label>
             <textarea
               id="active-tasks-input"
@@ -190,7 +262,7 @@ export const ActiveTasksSection: React.FC<ActiveTasksSectionProps> = ({
               required
               value={tasksInput}
               onChange={(e) => setTasksInput(e.target.value)}
-              placeholder="Enter today's active tasks or next update..."
+              placeholder={"Enter active tasks (one per line)...\nShoot product reel\nEdit Malayalam reel"}
               className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#E11D74] focus:border-transparent resize-y"
             />
           </div>
