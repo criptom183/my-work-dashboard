@@ -37,6 +37,9 @@ import {
   Copy,
   ChevronUp,
   ListChecks,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { TaskItem, TaskPriority, TaskStatus, TaskSubtask } from '../types';
 import {
@@ -281,6 +284,47 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   const [formSubtasks, setFormSubtasks] = useState<TaskSubtask[]>([]);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
 
+  // Inline subtask editing & drag-and-drop state (Kanban & List views)
+  const [editingSubtask, setEditingSubtask] = useState<{
+    taskId: string;
+    subtaskId: string;
+    title: string;
+  } | null>(null);
+  const [draggedSubtask, setDraggedSubtask] = useState<{
+    taskId: string;
+    index: number;
+  } | null>(null);
+  const [dragOverSubtask, setDragOverSubtask] = useState<{
+    taskId: string;
+    index: number;
+  } | null>(null);
+
+  // Subtask editing & drag-and-drop state inside Add/Edit Task modal
+  const [editingFormSubtaskId, setEditingFormSubtaskId] = useState<string | null>(null);
+  const [editingFormSubtaskTitle, setEditingFormSubtaskTitle] = useState('');
+  const [draggedFormSubtaskIdx, setDraggedFormSubtaskIdx] = useState<number | null>(null);
+  const [dragOverFormSubtaskIdx, setDragOverFormSubtaskIdx] = useState<number | null>(null);
+
+  const reorderSubtaskList = (
+    list: TaskSubtask[],
+    fromIndex: number,
+    toIndex: number
+  ): TaskSubtask[] => {
+    if (
+      fromIndex === toIndex ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= list.length ||
+      toIndex >= list.length
+    ) {
+      return list;
+    }
+    const next = [...list];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
+  };
+
   // Statistics
   const totalTasks = tasks.length;
   const inProgressCount = tasks.filter((t) => t.status === 'in-progress').length;
@@ -325,7 +369,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
         st.id === subtaskId ? { ...st, completed: !st.completed } : st
       );
       // Auto-update status if all subtasks completed
-      const allDone = updatedSubtasks.every((st) => st.completed);
+      const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every((st) => st.completed);
       updatedTaskItem = {
         ...t,
         subtasks: updatedSubtasks,
@@ -341,6 +385,69 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
       } catch (err) {
         console.error('Failed to sync subtask to cloud:', err);
       }
+    }
+  };
+
+  // Edit an existing subtask title inline (persists in real-time to Cloud Firestore)
+  const handleSaveInlineSubtaskEdit = async () => {
+    if (isViewOnly || !editingSubtask) return;
+    const trimmedTitle = editingSubtask.title.trim();
+    const { taskId, subtaskId } = editingSubtask;
+    setEditingSubtask(null);
+    if (!trimmedTitle) return;
+
+    let updatedTaskItem: TaskItem | null = null;
+    const updated = tasks.map((t) => {
+      if (t.id !== taskId || !t.subtasks) return t;
+      const existing = t.subtasks.find((st) => st.id === subtaskId);
+      if (!existing || existing.title === trimmedTitle) return t;
+      const updatedSubtasks = t.subtasks.map((st) =>
+        st.id === subtaskId ? { ...st, title: trimmedTitle } : st
+      );
+      updatedTaskItem = {
+        ...t,
+        subtasks: updatedSubtasks,
+      };
+      return updatedTaskItem;
+    });
+
+    if (!updatedTaskItem) return;
+    onUpdateTasks(updated);
+
+    try {
+      await saveTaskToFirestore(updatedTaskItem);
+    } catch (err) {
+      console.error('Failed to sync edited subtask to cloud:', err);
+    }
+  };
+
+  // Reorder subtasks within a task (persists in real-time to Cloud Firestore)
+  const handleReorderSubtasks = async (
+    taskId: string,
+    fromIndex: number,
+    toIndex: number
+  ) => {
+    if (isViewOnly || fromIndex === toIndex) return;
+
+    let updatedTaskItem: TaskItem | null = null;
+    const updated = tasks.map((t) => {
+      if (t.id !== taskId || !t.subtasks || t.subtasks.length < 2) return t;
+      const reordered = reorderSubtaskList(t.subtasks, fromIndex, toIndex);
+      if (reordered === t.subtasks) return t;
+      updatedTaskItem = {
+        ...t,
+        subtasks: reordered,
+      };
+      return updatedTaskItem;
+    });
+
+    if (!updatedTaskItem) return;
+    onUpdateTasks(updated);
+
+    try {
+      await saveTaskToFirestore(updatedTaskItem);
+    } catch (err) {
+      console.error('Failed to sync reordered subtasks to cloud:', err);
     }
   };
 
@@ -457,6 +564,10 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     setFormTags('');
     setFormSubtasks([]);
     setNewSubtaskTitle('');
+    setEditingFormSubtaskId(null);
+    setEditingFormSubtaskTitle('');
+    setDraggedFormSubtaskIdx(null);
+    setDragOverFormSubtaskIdx(null);
     setIsModalOpen(true);
   };
 
@@ -469,8 +580,12 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     setFormCategory(task.category);
     setFormDueDate(task.dueDate || '');
     setFormTags(task.tags ? task.tags.join(', ') : '');
-    setFormSubtasks(task.subtasks || []);
+    setFormSubtasks((task.subtasks || []).map((st) => ({ ...st })));
     setNewSubtaskTitle('');
+    setEditingFormSubtaskId(null);
+    setEditingFormSubtaskTitle('');
+    setDraggedFormSubtaskIdx(null);
+    setDragOverFormSubtaskIdx(null);
     setIsModalOpen(true);
   };
 
@@ -485,8 +600,43 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     setNewSubtaskTitle('');
   };
 
+  // Start editing a subtask inside the modal
+  const handleStartEditFormSubtask = (subtask: TaskSubtask) => {
+    setEditingFormSubtaskId(subtask.id);
+    setEditingFormSubtaskTitle(subtask.title);
+  };
+
+  // Save inline subtask edit inside the modal
+  const handleSaveFormSubtaskEdit = () => {
+    if (!editingFormSubtaskId) return;
+    const trimmed = editingFormSubtaskTitle.trim();
+    if (trimmed) {
+      setFormSubtasks((prev) =>
+        prev.map((st) => (st.id === editingFormSubtaskId ? { ...st, title: trimmed } : st))
+      );
+    }
+    setEditingFormSubtaskId(null);
+    setEditingFormSubtaskTitle('');
+  };
+
+  // Toggle completed state of a subtask inside the modal
+  const handleToggleFormSubtaskCompleted = (id: string) => {
+    setFormSubtasks((prev) =>
+      prev.map((st) => (st.id === id ? { ...st, completed: !st.completed } : st))
+    );
+  };
+
+  // Reorder subtasks inside the modal
+  const handleMoveFormSubtask = (fromIndex: number, toIndex: number) => {
+    setFormSubtasks((prev) => reorderSubtaskList(prev, fromIndex, toIndex));
+  };
+
   // Remove subtask from form
   const handleRemoveFormSubtask = (id: string) => {
+    if (editingFormSubtaskId === id) {
+      setEditingFormSubtaskId(null);
+      setEditingFormSubtaskTitle('');
+    }
     setFormSubtasks((prev) => prev.filter((st) => st.id !== id));
   };
 
@@ -494,6 +644,16 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
   const handleSaveModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) return;
+
+    // Auto-commit any active inline subtask edit before saving
+    const committedSubtasks =
+      editingFormSubtaskId && editingFormSubtaskTitle.trim()
+        ? formSubtasks.map((st) =>
+            st.id === editingFormSubtaskId
+              ? { ...st, title: editingFormSubtaskTitle.trim() }
+              : st
+          )
+        : formSubtasks;
 
     const parsedTags = formTags
       .split(',')
@@ -512,7 +672,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
         status: formStatus,
         category: formCategory,
         dueDate: formDueDate || undefined,
-        subtasks: formSubtasks.length > 0 ? formSubtasks : undefined,
+        subtasks: committedSubtasks,
         tags: parsedTags.length > 0 ? parsedTags : undefined,
         completedAt: formStatus === 'completed' ? editingTask.completedAt || new Date().toISOString() : undefined,
       };
@@ -528,7 +688,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
         status: formStatus,
         category: formCategory,
         dueDate: formDueDate || undefined,
-        subtasks: formSubtasks.length > 0 ? formSubtasks : undefined,
+        subtasks: committedSubtasks.length > 0 ? committedSubtasks : undefined,
         tags: parsedTags.length > 0 ? parsedTags : undefined,
         createdAt: new Date().toISOString(),
         completedAt: formStatus === 'completed' ? new Date().toISOString() : undefined,
@@ -536,6 +696,8 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
       onUpdateTasks([savedItem, ...tasks]);
     }
 
+    setEditingFormSubtaskId(null);
+    setEditingFormSubtaskTitle('');
     setIsModalOpen(false);
 
     try {
@@ -574,6 +736,211 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const renderInlineSubtaskItems = (task: TaskItem, compact: boolean) => {
+    const subtasksList = task.subtasks || [];
+    if (subtasksList.length === 0) return null;
+
+    return (
+      <div className="space-y-1 mt-1">
+        {subtasksList.map((st, idx) => {
+          const isEditingThis =
+            !isViewOnly &&
+            editingSubtask?.taskId === task.id &&
+            editingSubtask?.subtaskId === st.id;
+          const isDraggingThis =
+            draggedSubtask?.taskId === task.id && draggedSubtask?.index === idx;
+          const isDragOverThis =
+            dragOverSubtask?.taskId === task.id &&
+            dragOverSubtask?.index === idx &&
+            draggedSubtask?.taskId === task.id &&
+            draggedSubtask?.index !== idx;
+
+          if (isEditingThis) {
+            return (
+              <div
+                key={st.id}
+                className="flex items-center gap-1.5 p-1.5 rounded-md bg-white border border-teal-300 shadow-2xs"
+              >
+                <input
+                  type="text"
+                  value={editingSubtask.title}
+                  onChange={(e) =>
+                    setEditingSubtask((prev) =>
+                      prev ? { ...prev, title: e.target.value } : null
+                    )
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveInlineSubtaskEdit();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingSubtask(null);
+                    }
+                  }}
+                  autoFocus
+                  className={`flex-1 min-w-0 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500 ${
+                    compact ? 'text-[11px]' : 'text-xs'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveInlineSubtaskEdit}
+                  className="p-1 rounded bg-teal-600 hover:bg-teal-700 text-white transition-colors cursor-pointer shrink-0"
+                  title="Save subtask"
+                >
+                  <Check className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingSubtask(null)}
+                  className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                  title="Cancel edit"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={st.id}
+              draggable={!isViewOnly}
+              onDragStart={(e) => {
+                if (isViewOnly) return;
+                setDraggedSubtask({ taskId: task.id, index: idx });
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', st.id);
+              }}
+              onDragOver={(e) => {
+                if (isViewOnly || draggedSubtask?.taskId !== task.id) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (dragOverSubtask?.index !== idx || dragOverSubtask?.taskId !== task.id) {
+                  setDragOverSubtask({ taskId: task.id, index: idx });
+                }
+              }}
+              onDragLeave={() => {
+                if (dragOverSubtask?.taskId === task.id && dragOverSubtask?.index === idx) {
+                  setDragOverSubtask(null);
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (
+                  !isViewOnly &&
+                  draggedSubtask &&
+                  draggedSubtask.taskId === task.id &&
+                  draggedSubtask.index !== idx
+                ) {
+                  handleReorderSubtasks(task.id, draggedSubtask.index, idx);
+                }
+                setDraggedSubtask(null);
+                setDragOverSubtask(null);
+              }}
+              onDragEnd={() => {
+                setDraggedSubtask(null);
+                setDragOverSubtask(null);
+              }}
+              className={`group/sub flex items-center justify-between gap-1.5 rounded-md border transition-all ${
+                compact ? 'px-1.5 py-1 text-[11px]' : 'px-2 py-1.5 text-xs'
+              } ${
+                isDragOverThis
+                  ? 'border-teal-500 bg-teal-50/80 ring-1 ring-teal-400/50'
+                  : 'border-transparent hover:border-slate-200 hover:bg-white'
+              } ${isDraggingThis ? 'opacity-45' : ''}`}
+            >
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                {!isViewOnly && (
+                  <span
+                    className="text-slate-300 group-hover/sub:text-slate-500 cursor-grab active:cursor-grabbing shrink-0"
+                    title="Drag to reorder subtask"
+                  >
+                    <GripVertical className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={isViewOnly}
+                  onClick={() => !isViewOnly && handleToggleSubtask(task.id, st.id)}
+                  className={`flex items-center gap-1.5 min-w-0 flex-1 text-left select-none ${
+                    !isViewOnly ? 'cursor-pointer' : 'cursor-default'
+                  }`}
+                >
+                  {st.completed ? (
+                    <CheckSquare
+                      className={`${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-teal-600 shrink-0`}
+                    />
+                  ) : (
+                    <Square
+                      className={`${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-slate-400 shrink-0`}
+                    />
+                  )}
+                  <span
+                    className={`break-words leading-snug ${
+                      st.completed ? 'line-through text-slate-400' : 'text-slate-800'
+                    }`}
+                  >
+                    {st.title}
+                  </span>
+                </button>
+              </div>
+
+              {!isViewOnly && (
+                <div className="flex items-center gap-0.5 shrink-0 opacity-85 group-hover/sub:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingSubtask({
+                        taskId: task.id,
+                        subtaskId: st.id,
+                        title: st.title,
+                      });
+                    }}
+                    className="p-0.5 text-slate-400 hover:text-teal-700 hover:bg-teal-50 rounded transition-colors cursor-pointer"
+                    title="Edit subtask"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                  {subtasksList.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReorderSubtasks(task.id, idx, idx - 1);
+                        }}
+                        className="p-0.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none rounded transition-colors cursor-pointer"
+                        title="Move subtask up"
+                      >
+                        <ArrowUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === subtasksList.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReorderSubtasks(task.id, idx, idx + 1);
+                        }}
+                        className="p-0.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none rounded transition-colors cursor-pointer"
+                        title="Move subtask down"
+                      >
+                        <ArrowDown className="w-3 h-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -1214,7 +1581,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                                   />
                                 </div>
 
-                                {/* Collapsible checkable subtask list */}
+                                {/* Collapsible checkable, editable & reorderable subtask list */}
                                 {isExpanded && (
                                   <div className="mt-2 p-2.5 bg-slate-50/90 rounded-lg border border-slate-200/90 space-y-1.5 animate-in fade-in duration-150">
                                     <div className="flex items-center justify-between pb-1 border-b border-slate-200/60 text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
@@ -1227,30 +1594,7 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                                         Collapse
                                       </button>
                                     </div>
-                                    <div className="space-y-1 mt-1">
-                                      {task.subtasks?.map((st) => (
-                                        <div
-                                          key={st.id}
-                                          onClick={!isViewOnly ? () => handleToggleSubtask(task.id, st.id) : undefined}
-                                          className={`flex items-center gap-1.5 text-[11px] text-slate-700 select-none py-0.5 ${
-                                            !isViewOnly ? 'hover:text-slate-900 cursor-pointer' : 'cursor-default'
-                                          }`}
-                                        >
-                                          {st.completed ? (
-                                            <CheckSquare className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                                          ) : (
-                                            <Square className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                          )}
-                                          <span
-                                            className={
-                                              st.completed ? 'line-through text-slate-400' : 'text-slate-800'
-                                            }
-                                          >
-                                            {st.title}
-                                          </span>
-                                        </div>
-                                      ))}
-                                    </div>
+                                    {renderInlineSubtaskItems(task, true)}
                                   </div>
                                 )}
                               </div>
@@ -1466,42 +1810,26 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
                           {/* Subtasks checklist if expanded */}
                           {isExpanded && task.subtasks && task.subtasks.length > 0 && (
                             <div className="mt-3 p-3 bg-slate-50/90 rounded-lg border border-slate-200/90 space-y-2 max-w-xl animate-in fade-in duration-150">
-                              <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
-                                <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                                  Subtask Checklist ({completedSubtasks}/{totalSubtasks} done):
-                                </p>
+                              <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-200/60">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                                    Subtask Checklist ({completedSubtasks}/{totalSubtasks} done)
+                                  </p>
+                                  {!isViewOnly && (
+                                    <span className="text-[10px] text-slate-400 font-medium">
+                                      Drag or use arrows to reorder • Click pencil to edit
+                                    </span>
+                                  )}
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => toggleExpand(task.id)}
-                                  className="text-xs text-teal-700 hover:text-teal-900 font-bold cursor-pointer"
+                                  className="text-xs text-teal-700 hover:text-teal-900 font-bold cursor-pointer shrink-0"
                                 >
                                   Collapse
                                 </button>
                               </div>
-                              <div className="space-y-1 mt-1">
-                              {task.subtasks.map((st) => (
-                                <div
-                                  key={st.id}
-                                  onClick={!isViewOnly ? () => handleToggleSubtask(task.id, st.id) : undefined}
-                                  className={`flex items-center gap-2 text-xs text-slate-700 select-none ${
-                                    !isViewOnly ? 'hover:text-slate-900 cursor-pointer' : 'cursor-default'
-                                  }`}
-                                >
-                                  {st.completed ? (
-                                    <CheckSquare className="w-4 h-4 text-teal-600 shrink-0" />
-                                  ) : (
-                                    <Square className="w-4 h-4 text-slate-400 shrink-0" />
-                                  )}
-                                  <span
-                                    className={
-                                      st.completed ? 'line-through text-slate-400' : ''
-                                    }
-                                  >
-                                    {st.title}
-                                  </span>
-                                </div>
-                              ))}
-                              </div>
+                              {renderInlineSubtaskItems(task, false)}
                             </div>
                           )}
                         </div>
@@ -1660,25 +1988,182 @@ export const TaskManagerPage: React.FC<TaskManagerPageProps> = ({
 
               {/* Subtasks / Checklist */}
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Subtask Checklist
-                </label>
-                <div className="space-y-1.5 mb-2 max-h-36 overflow-y-auto">
-                  {formSubtasks.map((st) => (
-                    <div
-                      key={st.id}
-                      className="flex items-center justify-between gap-2 p-1.5 bg-slate-50 rounded border border-slate-200 text-xs"
-                    >
-                      <span className="truncate">{st.title}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFormSubtask(st.id)}
-                        className="text-slate-400 hover:text-rose-600"
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Subtask Checklist
+                  </label>
+                  {formSubtasks.length > 0 && (
+                    <span className="text-[11px] text-slate-400">
+                      Drag or use arrows to reorder • Click to edit
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1.5 mb-2 max-h-48 overflow-y-auto pr-0.5">
+                  {formSubtasks.map((st, idx) => {
+                    const isEditingThis = editingFormSubtaskId === st.id;
+                    const isDraggingThis = draggedFormSubtaskIdx === idx;
+                    const isDragOverThis =
+                      dragOverFormSubtaskIdx === idx &&
+                      draggedFormSubtaskIdx !== null &&
+                      draggedFormSubtaskIdx !== idx;
+
+                    return (
+                      <div
+                        key={st.id}
+                        draggable={!isEditingThis}
+                        onDragStart={(e) => {
+                          if (isEditingThis) return;
+                          setDraggedFormSubtaskIdx(idx);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', st.id);
+                        }}
+                        onDragOver={(e) => {
+                          if (draggedFormSubtaskIdx === null) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverFormSubtaskIdx !== idx) {
+                            setDragOverFormSubtaskIdx(idx);
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverFormSubtaskIdx === idx) {
+                            setDragOverFormSubtaskIdx(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (draggedFormSubtaskIdx !== null && draggedFormSubtaskIdx !== idx) {
+                            handleMoveFormSubtask(draggedFormSubtaskIdx, idx);
+                          }
+                          setDraggedFormSubtaskIdx(null);
+                          setDragOverFormSubtaskIdx(null);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedFormSubtaskIdx(null);
+                          setDragOverFormSubtaskIdx(null);
+                        }}
+                        className={`flex items-center justify-between gap-2 p-1.5 rounded border text-xs transition-all ${
+                          isDragOverThis
+                            ? 'bg-teal-50 border-teal-400 ring-1 ring-teal-400/50'
+                            : 'bg-slate-50 border-slate-200'
+                        } ${isDraggingThis ? 'opacity-45' : ''}`}
                       >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                        {isEditingThis ? (
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <input
+                              type="text"
+                              value={editingFormSubtaskTitle}
+                              onChange={(e) => setEditingFormSubtaskTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleSaveFormSubtaskEdit();
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setEditingFormSubtaskId(null);
+                                  setEditingFormSubtaskTitle('');
+                                }
+                              }}
+                              autoFocus
+                              className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-teal-400 rounded focus:outline-none focus:ring-1 focus:ring-teal-500 text-slate-800"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleSaveFormSubtaskEdit}
+                              className="p-1 rounded bg-teal-600 hover:bg-teal-700 text-white cursor-pointer shrink-0"
+                              title="Save subtask"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingFormSubtaskId(null);
+                                setEditingFormSubtaskTitle('');
+                              }}
+                              className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
+                              title="Cancel edit"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <span
+                                className="text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing shrink-0"
+                                title="Drag to reorder"
+                              >
+                                <GripVertical className="w-3.5 h-3.5" />
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleFormSubtaskCompleted(st.id)}
+                                className="text-slate-400 hover:text-teal-600 cursor-pointer shrink-0"
+                                title={st.completed ? 'Mark incomplete' : 'Mark completed'}
+                              >
+                                {st.completed ? (
+                                  <CheckSquare className="w-3.5 h-3.5 text-teal-600" />
+                                ) : (
+                                  <Square className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditFormSubtask(st)}
+                                className={`truncate text-left flex-1 cursor-text hover:text-teal-800 ${
+                                  st.completed ? 'line-through text-slate-400' : 'text-slate-800'
+                                }`}
+                                title="Click to edit subtask title"
+                              >
+                                {st.title}
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditFormSubtask(st)}
+                                className="p-1 text-slate-400 hover:text-teal-700 rounded hover:bg-white transition-colors cursor-pointer"
+                                title="Edit subtask"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                              {formSubtasks.length > 1 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={idx === 0}
+                                    onClick={() => handleMoveFormSubtask(idx, idx - 1)}
+                                    className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:pointer-events-none rounded hover:bg-white transition-colors cursor-pointer"
+                                    title="Move up"
+                                  >
+                                    <ArrowUp className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx === formSubtasks.length - 1}
+                                    onClick={() => handleMoveFormSubtask(idx, idx + 1)}
+                                    className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:pointer-events-none rounded hover:bg-white transition-colors cursor-pointer"
+                                    title="Move down"
+                                  >
+                                    <ArrowDown className="w-3 h-3" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveFormSubtask(st.id)}
+                                className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="Remove subtask"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="flex gap-2">
                   <input
